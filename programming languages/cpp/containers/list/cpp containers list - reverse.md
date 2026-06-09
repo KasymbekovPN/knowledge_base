@@ -1,0 +1,43 @@
+---
+tags:
+  - programming-language
+  - cpp
+  - syntax
+  - container
+  - list
+---
+[[_cpp containers list|<=]]
+
+##### Метод `reverse()`
+Переворачивает порядок элементов в списке.
+
+```cpp
+#include <iostream>
+#include <list>
+
+template<typename T>
+void print_list(const std::list<T>&);
+
+int main() {
+    std::list<int> numbers {11, 2, 3, 19, 3};
+    print_list(numbers);
+
+    numbers.reverse();
+    print_list(numbers);
+
+    return 0;
+}
+
+template<typename T>
+void print_list(const std::list<T>& list) {
+    for (auto &item: list) {
+        std::cout << item << " ";
+    }
+    std::cout << std::endl;
+}
+```
+
+```
+11 2 3 19 3 
+3 19 3 2 11
+```

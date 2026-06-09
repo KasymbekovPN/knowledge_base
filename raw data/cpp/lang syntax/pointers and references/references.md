@@ -1,0 +1,1 @@
+[[languages/cpp/lang syntax/pointers and references/_|Назад]]

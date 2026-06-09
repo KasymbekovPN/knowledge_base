@@ -1,0 +1,1 @@
+[[languages/cpp/lang syntax/functions/_|Назад]]
