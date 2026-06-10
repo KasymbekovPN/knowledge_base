@@ -1,1 +1,8 @@
 .obsidian/
+.build/
+.venv/
+
+.claude/settings.local.json
+
+*.exe
+*.pdb

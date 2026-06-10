@@ -1,0 +1,11 @@
+{
+    "configurations": [
+        {
+            "name": "Clang",
+            "compilerPath": "C:/Program Files/LLVM/bin/clang++.exe",
+            "cppStandard": "c++23",
+            "intelliSenseMode": "windows-clang-x64"
+        }
+    ],
+    "version": 4
+}
