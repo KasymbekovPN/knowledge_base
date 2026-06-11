@@ -1,0 +1,26 @@
+#include <iostream>
+#include <string>
+#include <string_view>
+
+void _print_string_view(const std::string_view&);
+
+int main() {
+    const std::string str {"Example form std::string"};
+    const char* cstr {"Example from char*"};
+
+    const std::string_view sv0 {str};
+    const std::string_view sv1 {cstr};
+    const std::string_view sv2 {"Example from literal"};
+    const std::string_view sv3 {str.substr(0, 5)};
+
+    _print_string_view(sv0);
+    _print_string_view(sv1);
+    _print_string_view(sv2);
+    _print_string_view(sv3);
+
+    return 0;
+}
+
+void _print_string_view(const std::string_view& sv) {
+    std::cout << sv << std::endl;
+}

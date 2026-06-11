@@ -1,0 +1,21 @@
+#include <iostream>
+#include <string>
+
+void _test_find_last_not_of(const std::string&, const std::string);
+
+int main() {
+    const std::string str {"hello"};
+    _test_find_last_not_of(str, "l");
+    _test_find_last_not_of(str, "x");
+
+    return 0;
+}
+
+void _test_find_last_not_of(const std::string& str, const std::string sub) {
+    auto idx = str.rfind(sub);
+    if (idx != std::string::npos) {
+        std::cout << "idx <= " << idx << std::endl;
+    } else {
+        std::cout << "NPOS" << std::endl;
+    }
+}
