@@ -4,7 +4,7 @@ tags:
   - cpp
   - threads
 ---
-[[raw data/cpp/os/threads/_|<=]]
+[[programming languages/cpp/threads/_|<=]]
 
 `std::thread` может запускать любой **callable object**: функцию, лямбду, функтор, метод класса и т.д.
 

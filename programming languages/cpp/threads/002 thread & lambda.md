@@ -4,7 +4,7 @@ tags:
   - cpp
   - threads
 ---
-[[raw data/cpp/os/threads/_|<=]]
+[[programming languages/cpp/threads/_|<=]]
 
 Лямбды — это самый распространённый способ работы с `std::thread` в современном C++, потому что они позволяют удобно передавать код и данные в новый поток.
 

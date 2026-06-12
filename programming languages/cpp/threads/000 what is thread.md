@@ -4,7 +4,7 @@ tags:
   - cpp
   - threads
 ---
-[[raw data/cpp/os/threads/_|<=]]
+[[programming languages/cpp/threads/_|<=]]
 
 `std::thread` — это класс стандартной библиотеки C++, представляющий **поток выполнения (execution thread)**.
 

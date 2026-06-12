@@ -4,7 +4,7 @@ tags:
   - cpp
   - threads
 ---
-[[raw data/cpp/os/threads/_|<=]]
+[[programming languages/cpp/threads/_|<=]]
 
 Класс потокобезопасен, если его можно использовать из нескольких потоков одновременно без гонок данных и неопределённого поведения.
 
@@ -35,81 +35,141 @@ std::atomic<int> counter{0}; // всегда безопасно
 |const-методы защищены?|мьютекс `mutable`|
 |Один мьютекс на 2+ полях?|или `scoped_lock` при нескольких|
 
-
----
-
-
-
----
-
-### Проектирование thread-safe класса
-
 **Правило:** защищать нужно **инварианты**, а не просто отдельные операции.
-
-```cpp
-class ThreadSafeCounter {
-public:
-    void increment() {
-        std::lock_guard lock(mtx);
-        ++value;
-    }
-
-    void decrement() {
-        std::lock_guard lock(mtx);
-        --value;
-    }
-
-    int get() const {
-        std::lock_guard lock(mtx);
-        return value;
-    }
-
-private:
-    mutable std::mutex mtx;
-    int value{};
-};
-```
 
 `mutable` — позволяет захватывать мьютекс в `const`-методах.
 
----
+```cpp
+#include <iostream>
+#include <mutex>
+
+class Value {
+
+public:
+    int inc() {
+        std::lock_guard lock{mtx};
+        int old_value = value;
+        ++value;
+        ++counter;
+
+        return old_value;
+    }
+
+    int dec() {
+        std::lock_guard lock{mtx};
+        int old_value = value;
+        --value;
+        ++counter;
+
+        return old_value;
+    }
+
+    int get() const {
+        std::lock_guard lock{mtx};
+        return value;
+    }
+
+    size_t getCounter() const {
+        std::lock_guard lock{mtx};
+        return counter;
+    }
+
+private:
+    mutable std::mutex mtx;
+    int value{};
+    size_t counter{};
+};
+
+std::ostream& operator<<(std::ostream& _os, const Value& _value) {
+    return _os
+        << "{value: " << _value.get()
+        << ", counter: " << _value.getCounter() << "}";
+}
+
+int main() {
+    Value value;
+    std::thread{[&]() {value.inc();}}.join();
+    std::thread{[&]() {value.dec();}}.join();
+    std::thread{[&]() {value.inc();}}.join();
+
+    std::cout << "value: " << value << std::endl;
+
+    return 0;
+}
+```
+
+```
+value: {value: 1, counter: 3}
+```
 
 ### Ловушка — составные операции
 
 Защита каждой операции по отдельности **не делает** их комбинацию безопасной:
 
 ```cpp
-// каждый метод защищён, но проверка + действие — гонка
-if (!stack.empty()) {    // поток A: стек не пуст
-    stack.pop();         // поток B: уже забрал элемент → UB
+if (!stack.empty()) {
+    stack.pop();
 }
 ```
 
-Решение — предоставлять составные операции как единую транзакцию:
-
 ```cpp
-class ThreadSafeStack {
-public:
-    std::optional<int> pop() {
-        std::lock_guard lock(mtx);
-        if (data.empty()) return std::nullopt;
-        int val = data.top();
-        data.pop();
-        return val;
-    }
+#include <iostream>
+#include <mutex>
+#include <thread>
+#include <stack>
+#include <optional>
+#include <condition_variable>
 
-    void push(int val) {
-        std::lock_guard lock(mtx);
-        data.push(val);
-    }
+class Stack {
+
+public:
+    void push(int _value) {
+        {
+            std::lock_guard lock{mtx};
+            data.push(_value);
+        }
+        cv.notify_one();
+    }
+
+    int pop() {
+        std::unique_lock lock{mtx};
+        cv.wait(lock, [this]() {
+            return !data.empty();
+        });
+
+        int result = data.top();
+        data.pop();
+
+        return result;
+    }
 
 private:
-    std::mutex mtx;
-    std::stack<int> data;
+    std::mutex mtx;
+    std::stack<int> data;
+    std::condition_variable cv;
 };
+
+int main() {
+    Stack st;
+
+    std::thread t0{[&]() {
+        std::cout << "T0: " << st.pop() << "\n";
+    }};
+
+    std::thread t1{[&]() {
+        st.push(42);
+    }};
+
+    t0.join();
+    t1.join();
+
+    return 0;
+}
 ```
 
----
+```
+T0: 42
+```
 
 ### Избегать передачи внутренних данных наружу
 
@@ -134,9 +194,7 @@ private:
 };
 ```
 
----
-
-### Читатели и писатели — shared_mutex
+### Читатели (shared_lock) и писатели (unique_lock)
 
 ```cpp
 class ThreadSafeConfig {
@@ -157,89 +215,3 @@ private:
     std::unordered_map<std::string, std::string> data;
 };
 ```
-
----
-
-
-
----
----
----
-- `thread_local` переменные
-- Профилирование и отладка многопоточных программ
-
----
-
-## 🔹 Неделя 6: Продвинутые темы (по желанию)
-
-**Цель:** Расширить знания до продвинутого уровня.
-
-### Темы:
-- Пул потоков (thread pool) — реализация
-- `std::jthread` (C++20) — автоматический `join`
-- `std::stop_token`, `std::stop_source` (C++20) — безопасное завершение
-- Lock-free структуры данных (на базе `std::atomic`)
-- Работа с GUI или сетевыми серверами в многопоточной среде
-
-### Практика:
-```cpp
-// Написать простой пул потоков с очередью задач
-```
-
----
-
-## 🛠️ Инструменты и среды
-
-| Инструмент | Для чего |
-|----------|---------|
-| **g++ / clang++ с `-pthread`** | Компиляция многопоточных программ |
-| **Valgrind + Helgrind/DRD** | Поиск race conditions |
-| **GCC/Clang с `-fsanitize=thread`** | ThreadSanitizer — лучший выбор |
-| **IDE: CLion, VS Code, Visual Studio** | Отладка потоков |
-
----
-
-## 📚 Рекомендуемые источники
-
-### Книги:
-- **"C++ Concurrency in Action"** — *Anthony Williams* (лучшая книга по теме)
-- **"Effective Modern C++"** — *Scott Meyers* (разделы про concurrency)
-
-### Онлайн:
-- [https://en.cppreference.com](https://en.cppreference.com) — официальная документация
-- [https://www.modernescpp.com](https://www.modernescpp.com) — отличные статьи по concurrency
-- YouTube: поиск по "C++ threads tutorial"
-
----
-
-## ✅ Советы по обучению
-
-| Совет | Почему |
-|------|--------|
-| Пишите код каждый день | Многопоточность требует практики |
-| Используйте ThreadSanitizer | Находит ошибки, которые вы не увидите сами |
-| Начинайте с простого | Не бросайтесь сразу в lock-free программирование |
-| Тестируйте на разных платформах | Поведение может отличаться (Linux vs Windows) |
-| Избегайте глобальных переменных | Они усложняют тестирование |
-
----
-
-## 🎯 Финальный проект (по окончании курса)
-
-> **Создать HTTP-сервер (упрощённый), который:**
-> - Обрабатывает запросы в отдельных потоках
-> - Имеет thread-safe кэш
-> - Использует пул потоков
-> - Поддерживает асинхронные операции
-
----
-
-Если хочешь, могу:
-- Прислать пошаговые уроки с примерами
-- Подготовить тесты по каждой теме
-- Показать, как отлаживать deadlock
-- Составить таблицу совместимости (C++11, 17, 20)
-
-📌 Просто скажи: "Да, хочу подробный урок по [тема]"!
-
-Удачи в изучении многопоточности! 💪

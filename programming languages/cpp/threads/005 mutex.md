@@ -4,7 +4,7 @@ tags:
   - cpp
   - threads
 ---
-[[raw data/cpp/os/threads/_|<=]]
+[[programming languages/cpp/threads/_|<=]]
 
 `std::mutex` (mutual exclusion) используется для защиты общих данных от одновременного доступа из нескольких потоков.
 
