@@ -312,164 +312,48 @@ int main() {
 data: 42
 ```
 
----
----
----
+### seq_cst — полный последовательный порядок
+- `все потоки видят операции в одном порядке`
+- `используется по умолчанию, самый медленный`
 
 ```cpp
-
-
-// ─────────────────────────────────────────────
-
-// ─────────────────────────────────────────────
-void example_acq_rel() {
-    std::atomic<int> flag{0};
-    int data = 0;
-
-    std::jthread t0([&]() {
-        data = 42;
-        flag.fetch_add(1, std::memory_order_release); // publish data
-    });
-
-    std::jthread t1([&]() {
-        // CAS с acq_rel: при успехе видит всё до release
-        int expected = 1;
-        if (flag.compare_exchange_strong(expected, 2, std::memory_order_acq_rel)) {
-            assert(data == 42); // гарантировано
-        }
-    });
-}
-
-// ─────────────────────────────────────────────
-// 5. seq_cst — полный последовательный порядок
-//    все потоки видят операции в одном порядке
-//    используется по умолчанию, самый медленный
-// ─────────────────────────────────────────────
-void example_seq_cst() {
-    std::atomic<bool> x{false};
-    std::atomic<bool> y{false};
-    std::atomic<int>  z{0};
-
-    std::jthread t0([&]() { x.store(true, std::memory_order_seq_cst); });
-    std::jthread t1([&]() { y.store(true, std::memory_order_seq_cst); });
-
-    std::jthread t2([&]() {
-        while (!x.load(std::memory_order_seq_cst));
-        if (y.load(std::memory_order_seq_cst)) ++z;
-    });
-
-    std::jthread t3([&]() {
-        while (!y.load(std::memory_order_seq_cst));
-        if (x.load(std::memory_order_seq_cst)) ++z;
-    });
-    // гарантия: z >= 1 — хотя бы один из t2/t3 увидит оба флага
-}
+#include <iostream>
+#include <atomic>
+#include <thread>
+#include <format>
 
 int main() {
-    example_relaxed();
-    example_release_acquire();
-    example_consume();
-    example_acq_rel();
-    example_seq_cst();
-    std::cout << "all ok\n";
+    std::atomic<bool> x{};
+    std::atomic<bool> y{};
+    std::atomic<int> z{};
+
+    {
+        std::jthread t0{[&](){ x.store(true, std::memory_order_seq_cst); }};
+        std::jthread t1{[&](){ y.store(true, std::memory_order_seq_cst); }};
+
+        std::jthread t2{[&](){
+            while(!x.load(std::memory_order_seq_cst));
+            if (y.load(std::memory_order_seq_cst)) {
+                ++z;
+                std::cout << std::format("T2 z: {}\n", z.load());
+            }
+        }};
+
+        std::jthread t3{[&](){
+            while(!y.load(std::memory_order_seq_cst));
+            if (x.load(std::memory_order_seq_cst)) {
+                ++z;
+                std::cout << std::format("T3 z: {}\n", z.load());
+            }
+        }};
+    }
+    std::cout << std::format("z: {}\n", z.load());
+
+    return 0;
 }
 ```
 
----
-
-
-
-
-
-```cpp
-// от слабейшего к сильнейшему:
-std::memory_order_relaxed  // только атомарность, без порядка
-std::memory_order_acquire  // всё после load видит запись до release
-std::memory_order_release  // всё до store видно после acquire
-std::memory_order_seq_cst  // полный порядок (по умолчанию, самый медленный)
 ```
-
-```cpp
-// producer
-data = 42;
-flag.store(true, std::memory_order_release);
-
-// consumer
-while (!flag.load(std::memory_order_acquire));
-std::cout << data; // гарантированно 42
+T3 z: 1
+z: 1
 ```
-
----
-
-
-
-
----
----
-### Темы:
-- 
-- Работа с GUI или сетевыми серверами в многопоточной среде
-- Профилирование и отладка многопоточных программ
-
-### Практика:
-```cpp
-// Написать простой пул потоков с очередью задач
-```
-
----
-
-## 🛠️ Инструменты и среды
-
-| Инструмент | Для чего |
-|----------|---------|
-| **g++ / clang++ с `-pthread`** | Компиляция многопоточных программ |
-| **Valgrind + Helgrind/DRD** | Поиск race conditions |
-| **GCC/Clang с `-fsanitize=thread`** | ThreadSanitizer — лучший выбор |
-| **IDE: CLion, VS Code, Visual Studio** | Отладка потоков |
-
----
-
-## 📚 Рекомендуемые источники
-
-### Книги:
-- **"C++ Concurrency in Action"** — *Anthony Williams* (лучшая книга по теме)
-- **"Effective Modern C++"** — *Scott Meyers* (разделы про concurrency)
-
-### Онлайн:
-- [https://en.cppreference.com](https://en.cppreference.com) — официальная документация
-- [https://www.modernescpp.com](https://www.modernescpp.com) — отличные статьи по concurrency
-- YouTube: поиск по "C++ threads tutorial"
-
----
-
-## ✅ Советы по обучению
-
-| Совет | Почему |
-|------|--------|
-| Пишите код каждый день | Многопоточность требует практики |
-| Используйте ThreadSanitizer | Находит ошибки, которые вы не увидите сами |
-| Начинайте с простого | Не бросайтесь сразу в lock-free программирование |
-| Тестируйте на разных платформах | Поведение может отличаться (Linux vs Windows) |
-| Избегайте глобальных переменных | Они усложняют тестирование |
-
----
-
-## 🎯 Финальный проект (по окончании курса)
-
-> **Создать HTTP-сервер (упрощённый), который:**
-> - Обрабатывает запросы в отдельных потоках
-> - Имеет thread-safe кэш
-> - Использует пул потоков
-> - Поддерживает асинхронные операции
-
----
-
-Если хочешь, могу:
-- Прислать пошаговые уроки с примерами
-- Подготовить тесты по каждой теме
-- Показать, как отлаживать deadlock
-- Составить таблицу совместимости (C++11, 17, 20)
-
-📌 Просто скажи: "Да, хочу подробный урок по [тема]"!
-
-Удачи в изучении многопоточности! 💪

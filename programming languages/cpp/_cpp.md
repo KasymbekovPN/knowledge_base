@@ -17,11 +17,10 @@ tags:
 - [[programming languages/cpp/idioms/_|idioms]]
 - [[programming languages/cpp/concepts/_|concepts]]
 - [[programming languages/cpp/threads/_|threads]]
+- [[programming languages/cpp/coroutine/_|coroutine]]
 
 ---
 
-threads
-coroutine
 
 IO
 https://metanit.com/cpp/tutorial/8.1.php
