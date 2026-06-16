@@ -194,27 +194,75 @@ int main() {
 Result: 42
 ```
 
-
-
-
-----
----
----
-
 ## co_yield — выдать значение с приостановкой
 
 Возвращает промежуточное значение и приостанавливается, сохраняя возможность продолжить. Основа генераторов (ленивых последовательностей).
 
 ```cpp
-Generator<int> fibonacci() {
-    int a = 0, b = 1;
-    while (true) {
-        co_yield a;            // выдать a и приостановиться здесь
-        auto next = a + b;     // продолжится отсюда при следующем запросе
-        a = b;
-        b = next;
-    }
+#include <iostream>
+#include <format>
+#include <coroutine>
+#include <cstdint>
+#include <utility>
+
+template <typename T>
+struct Generator {
+    struct promise_type {
+        T current;
+
+        Generator get_return_object() {
+            return Generator{
+                std::coroutine_handle<promise_type>::from_promise(*this)
+            };
+        }
+
+        std::suspend_always initial_suspend() noexcept { return {}; }
+        std::suspend_always final_suspend() noexcept { return {};}
+        std::suspend_always yield_value(T v) noexcept {
+            current = v;
+            return {};
+        }
+        void return_void() {}
+        void unhandled_exception() { std::terminate(); }
+    };
+
+    std::coroutine_handle<promise_type> h;
+
+    explicit Generator(std::coroutine_handle<promise_type> _h): h{_h} {}
+    Generator(Generator&& _other) noexcept: h{std::exchange(_other.h, {})} {}
+    ~Generator() { if (h) h.destroy(); }
+
+    bool next() {
+        h.resume();
+        return !h.done();
+    }
+    T value() const { return h.promise().current; }
+};
+
+Generator<uint64_t> fibonacci() {
+    uint32_t a = 0, b = 1;
+    while (true) {
+        co_yield a;
+        uint64_t next = a + b;
+        a = b;
+        b = next;
+    }
 }
+
+int main() {
+    auto&& gen = fibonacci();
+    for (size_t i{}; i < 10; i++) {
+        gen.next();
+        std::cout << std::format("{} ", gen.value());
+    }
+    std::cout << "\n";
+
+    return 0;
+}
+```
+
+```
+0 1 1 2 3 5 8 13 21 34
 ```
 
 Что происходит под капотом: `co_yield expr` — это синтаксический сахар, эквивалентный `co_await promise.yield_value(expr)`. То есть `co_yield` определяется через `co_await`: значение передаётся в `yield_value`, который обычно сохраняет его в промисе и возвращает awaiter, приостанавливающий корутину.
@@ -254,72 +302,3 @@ Task<int> f() {       // Task<int> обязан иметь Task<int>::promise_ty
 ```
 
 Поэтому «просто написать `co_return`» недостаточно для рабочей программы — нужен корректный тип-обёртка с промисом. Голые ключевые слова делают функцию корутиной _синтаксически_, но скомпилируется она только если тип возврата предоставляет требуемый протокол.
-
----
-
-Это естественный мост к следующим двум пунктам плана: **`promise_type`** (этап 2 — машинерия компилятора) и **механизм await** (этап 3). Они объясняют, во что именно разворачиваются эти три ключевых слова. С чего продолжим — с `promise_type` или с awaiter'ов?
-
-
----
----
----
-
-## Этап 2. Машинерия компилятора
-
-Самая трудная часть. Здесь важно понять, что компилятор генерирует «под капотом»:
-
-- `promise_type` и его обязательные методы (`get_return_object`, `initial_suspend`, `final_suspend`, `unhandled_exception`, `return_void`/`return_value`, `yield_value`)
-- `std::coroutine_handle<>`: `resume()`, `done()`, `destroy()`, `from_promise()`, `promise()`
-- Жизненный цикл корутины: создание → приостановка → возобновление → уничтожение
-- Где живёт состояние корутины (coroutine frame) и кто за его аллокацию отвечает
-
-## Этап 3. Механизм await
-
-- Awaitable и Awaiter: три метода `await_ready`, `await_suspend`, `await_resume`
-- Стандартные `std::suspend_always` и `std::suspend_never`
-- Что может возвращать `await_suspend` (`void`, `bool`, `coroutine_handle`) и как это меняет поведение
-- Symmetric transfer — передача управления другой корутине без роста стека
-
-## Этап 4. Практика — пишем свои типы
-
-Лучший способ закрепить — реализовать руками:
-
-- **Генератор** через `co_yield` (ленивая последовательность чисел, Фибоначчи)
-- **Task / лениво вычисляемая задача** через `co_return`
-- **Простой планировщик (scheduler)**, который гоняет несколько корутин по очереди
-- Связывание корутин: одна `co_await`-ит другую
-
-## Этап 5. Стандартная и сторонние библиотеки
-
-- `std::generator` (C++23) — готовый генератор из стандарта
-- **cppcoro** (Lewis Baker) — эталонная учебная библиотека: `task`, `generator`, `async_generator`, `when_all`, `sync_wait`
-- **Boost.Asio** — корутины в реальном асинхронном I/O
-- **libunifex / std::execution (sender/receiver)** — куда движется стандарт
-
-## Этап 6. Реальное применение
-
-- Асинхронный сетевой сервер (эхо-сервер на Asio с корутинами)
-- Конвейер обработки данных через генераторы
-- Комбинирование с пулом потоков (несколько потоков × тысячи корутин)
-
-## Этап 7. Подводные камни
-
-- Висячие ссылки: захват по ссылке в корутине, переживший вызывающую сторону (особенно с лямбдами)
-- Время жизни объектов и аргументов относительно coroutine frame
-- Аллокации и попытки их избежать (Heap Allocation Elision Optimization, HALO)
-- Отладка: почему стек-трейсы корутин «непривычны»
-
----
-
-## Полезные ресурсы
-
-- Серия статей **Lewis Baker «Asymmetric Transfer»** — лучший разбор внутренностей
-- Доклады **CppCon** по корутинам (особенно вводные от Lewis Baker и Gor Nishanov)
-- **cppreference** — раздел Coroutines как справочник
-- Книга **«C++ Concurrency in Action» (Anthony Williams)**, 2-е издание — есть глава по корутинам
-
----
-
-**Совет по темпу:** этапы 2–3 самые тяжёлые и неинтуитивные — не пытайся проскочить их быстро. Сразу пиши код руками: понимание `promise_type` и awaiter приходит только через собственные реализации, а не через чтение. Этапы 5–6 идут гораздо легче, когда фундамент заложен.
-
-Хочешь, оформлю это в виде файла (Markdown), чтобы можно было отмечать прогресс по пунктам?
