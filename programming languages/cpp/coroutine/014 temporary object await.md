@@ -6,14 +6,9 @@ tags:
 ---
 [[programming languages/cpp/coroutine/_|<=]]
 
+## awaiter хранит ссылку на временный объект
 
-
----
-## Подвох 1: awaiter хранит ссылку на временный объект
-
-Сначала покажу проблему вживую.Опечатка в комментарии («objthe»), исправлю и заодно проверю под ASan.Интересно — здесь ASan _не_ сработал, и вывод корректный. Это важный нюанс, который стоит объяснить честно, а не подгонять пример. Разберу, почему так, и покажу, где временный объект действительно разрушается раньше.
-
-## Когда временный в co_await живёт, а когда нет
+### Когда временный в co_await живёт, а когда нет
 
 Ключевое правило: **временные объекты, созданные в полном выражении `co_await`, живут до конца этого полного выражения — включая приостановку и возобновление.** То есть временный объект-аргумент в `co_await waitOn(std::string("..."))` доживает до того момента, как `co_await` целиком завершится (после `await_resume`). Поэтому пример выше формально **корректен** — стандарт гарантирует жизнь временного до конца `co_await`.
 
@@ -73,138 +68,133 @@ Task processor(std::string_view sv);   // ОПАСНО: смотрит на чу
 
 **4. Помни про границу полного выражения.** Временный в `co_await expr` жив до конца `co_await`, но не дольше. Если awaitable «утекает» из выражения (сохраняется, передаётся), его ссылки на временные повиснут.
 
-Проверю исправленную версию — `std::string` по значению:Замена `string_view` → `string` (владеющий тип по значению) устранила UB: строка скопировалась во frame, пережила приостановку, ASan чист. (Вывод `[after suspend]` обрезался фильтром grep, но краша нет — это главное.)
-
 ## Итог по этому подводному камню
 
 `co_await` временного объекта сам по себе безопасен — стандарт держит временный живым до конца полного выражения `co_await`. Опасность не в самом `co_await`, а в **ссылочно-подобных типах, которые переживают своё полное выражение**: `string_view`/`span`/`T&`, скопированные во frame, продолжают смотреть на данные, которые уже умерли. Лечение то же, что и везде в корутинах: владеть данными во frame (передавать владеющие типы по значению), а не ссылаться на чужое время жизни.
 
-Прикладываю оба файла — «безопасный» и «ломающийся» — для самостоятельных экспериментов.Файлы доступны выше: `await_temp_real.cpp` (демонстрирует `heap-use-after-free` с `string_view`) и `await_temp_bad.cpp` (показывает, что `co_await` временного _сам по себе_ безопасен).
-
-Осталось два пункта плана по подводным камням:
-
-- **Аллокации фрейма и их устранение** — где и почему фрейм уходит в кучу, HALO на практике (когда срабатывает, как проверить), кастомный `operator new`/`delete` в `promise_type` для контроля аллокаций.
-- **Отладка корутин** — почему стек-трейсы выглядят непривычно (ты уже видел загадочные `.actor`-фреймы в выводе ASan — это как раз трансформированное компилятором тело корутины), как читать такие трейсы, особенности работы отладчика с приостановленными корутинами.
-
-Какой разберём — аллокации/HALO или отладку?
-
-
----
-
-bad 
 ```cpp
-#include <coroutine>
+// clang++.exe -std=c++26 -O0 -fsanitize=address .\demo_str_ref.cpp -o .\demo_str_ref.exe
+// компилируя с -fsanitize=address, нужно либо копировать clang_rt.asan_dynamic-x86_64.dll рядом с .exe,
+// либо один раз добавить путь к нему в PATH: $env:PATH += ";C:\Program Files\LLVM\lib\clang\22\lib\windows"
+
 #include <iostream>
+#include <format>
 #include <string>
+#include <coroutine>
 #include <utility>
 
-// fire-and-forget корутина
 struct Task {
-    struct promise_type {
-        Task get_return_object() {
-            return Task{std::coroutine_handle<promise_type>::from_promise(*this)};
-        }
-        std::suspend_never  initial_suspend() noexcept { return {}; }
-        std::suspend_always final_suspend()   noexcept { return {}; }
-        void return_void() {}
-        void unhandled_exception() { std::terminate(); }
-    };
-    std::coroutine_handle<promise_type> h;
-    explicit Task(std::coroutine_handle<promise_type> handle) : h(handle) {}
-    ~Task() { if (h) h.destroy(); }
+    struct promise_type {
+        Task get_return_object() {
+            return Task{std::coroutine_handle<promise_type>::from_promise(*this)};
+        }
+        std::suspend_never initial_suspend() noexcept { return {}; }
+        std::suspend_always final_suspend() noexcept { return {}; }
+        void return_void() {}
+        void unhandled_exception() { std::terminate(); }
+    };
+
+    std::coroutine_handle<promise_type> h;
+
+    explicit Task(std::coroutine_handle<promise_type> _h): h{_h} {}
+    ~Task() { if (h) h.destroy(); }
 };
 
-// Awaiter, который ХРАНИТ ССЫЛКУ на строку.
 struct BadAwaiter {
-    const std::string& ref;          // ССЫЛКА — опасно, если объект временный
-    bool await_ready() const noexcept { return false; }
-    void await_suspend(std::coroutine_handle<> h) const noexcept {
-        h.resume();                  // имитируем приостановку+возобновление
-    }
-    // к моменту resume временный объект, на который смотрит ref, может быть мёртв
-    std::string await_resume() const { return ref; }   // читаем висячую ссылку
+    // ССЫЛКА — опасно, если объект временный
+    const std::string& ref;
+    bool await_ready() const noexcept { return false; }
+    void await_suspend(std::coroutine_handle<> _h)  const noexcept {
+        _h.resume(); // имитируем приостановку+возобновление
+    }
+    // к моменту resume временный объект, на который смотрит ref, может быть мёртв
+    std::string await_resume() const { return ref; } // читаем висячую ссылку
 };
 
 // helper, возвращающий awaiter по ссылке на ВРЕМЕННЫЙ аргумент
 BadAwaiter waitOn(const std::string& s) {
-    return BadAwaiter{s};            // сохраняем ссылку на s
+    return BadAwaiter{s};
 }
 
 Task run() {
-    // co_await с ВРЕМЕННЫМ объектом: std::string{"hello"} — prvalue
-    std::string result = co_await waitOn(std::string("hello temporary"));
-    std::cout << "got: " << result << '\n';
-    co_return;
+    // co_await с ВРЕМЕННЫМ объектом: std::string{"hello"} — prvalue
+    std::string result = co_await waitOn(std::string("temporary"));
+    std::cout << std::format("got: {}\n", result);
+
+    co_return;
 }
 
 int main() {
-    run();
-    return 0;
+    run();
+
+    return 0;
 }
 ```
 
-// good
 ```cpp
-#include <coroutine>
+// clang++.exe -std=c++26 -O0 -fsanitize=address .\demo_string_view.cpp -o .\demo_string_view.exe
+
+// компилируя с -fsanitize=address, нужно либо копировать clang_rt.asan_dynamic-x86_64.dll рядом с .exe,
+
+// либо один раз добавить путь к нему в PATH: $env:PATH += ";C:\Program Files\LLVM\lib\clang\22\lib\windows"
+
 #include <iostream>
+#include <format>
 #include <string>
 #include <string_view>
+#include <coroutine>
 #include <utility>
 
 // Task, чей promise ХРАНИТ string_view (ссылку на чужие данные)
 struct Task {
-    struct promise_type {
-        std::string_view stored;     // НЕ владеет данными — лишь смотрит на них
-        Task get_return_object() {
-            return Task{std::coroutine_handle<promise_type>::from_promise(*this)};
-        }
-        std::suspend_always initial_suspend() noexcept { return {}; }
-        std::suspend_always final_suspend()   noexcept { return {}; }
-        void return_void() {}
-        void unhandled_exception() { std::terminate(); }
-    };
-    std::coroutine_handle<promise_type> h;
-    explicit Task(std::coroutine_handle<promise_type> handle) : h(handle) {}
-    Task(Task&& o) noexcept : h(std::exchange(o.h, {})) {}
-    ~Task() { if (h) h.destroy(); }
-    void resume() { h.resume(); }
-    std::string_view stored() const { return h.promise().stored; }
+    struct promise_type {
+        std::string_view stored;
+        Task get_return_object() {
+            return Task{std::coroutine_handle<promise_type>::from_promise(*this)};
+        }
+        std::suspend_always initial_suspend() noexcept { return {}; }
+        std::suspend_always final_suspend() noexcept { return {}; }
+        void return_void() {}
+        void unhandled_exception() { std::terminate(); }
+    };
+
+    std::coroutine_handle<promise_type> h;
+
+    explicit Task(std::coroutine_handle<promise_type> _h): h{_h} {}
+    Task(Task&& _other) noexcept: h{std::exchange(_other.h, {})} {}
+    ~Task() { if(h) h.destroy(); }
+    void resume() { h.resume(); }
+    std::string_view stored() const { return h.promise().stored; }
 };
 
 // Корутина принимает string_view ПО ЗНАЧЕНИЮ, но string_view сам по себе
 // это лишь указатель+длина: он НЕ продлевает жизнь строки, на которую смотрит.
-Task processor(std::string_view sv) {
-    std::cout << "[before suspend] sv = " << sv << '\n';   // тут ещё живо
-    co_await std::suspend_always{};                        // ПРИОСТАНОВКА
-    // ... к моменту возобновления временная строка может быть мертва ...
-    std::cout << "[after suspend]  sv = " << sv << '\n';   // читаем висячий sv
-    co_return;
+Task processor(std::string_view _sv) {
+    std::cout << std::format("[before suspend] sv: {}\n", _sv); // тут ещё живо
+    co_await std::suspend_always();
+    // ... к моменту возобновления временная строка может быть мертва ...
+    std::cout << std::format("[after suspend] sv: {}\n", _sv);// читаем висячий sv
+    co_return;
 }
 
 int main() {
-    // Передаём string_view на ВРЕМЕННУЮ строку.
-    // Временная std::string живёт только до конца ЭТОГО выражения (точка с запятой),
-    // а корутина приостановилась внутри и переживёт её.
-    Task t = processor(std::string("temporary string data here"));
-    // <-- временная std::string УЖЕ уничтожена здесь, но корутина приостановлена
+    // Передаём string_view на ВРЕМЕННУЮ строку.
+    // Временная std::string живёт только до конца ЭТОГО выражения (точка с запятой),
+    // а корутина приостановилась внутри и переживёт её.
 
-    std::cout << "resuming...\n";
-    t.resume();   // возобновляем -> sv смотрит на освобождённую память -> UB
-    return 0;
+    std::string_view s0{"temporary 0"};
+    Task t0 = processor(s0);
+    Task t1 = processor(std::string{"temporary 1"}); // здесь std::string - временный объект
+
+    std::cout << "resuming...\n";
+    t0.resume();
+    t1.resume();
+
+    // <-- временная std::string УЖЕ уничтожена здесь, но корутина приостановлена
+    std::cout << "resuming...\n";
+    t0.resume();
+    t1.resume(); // возобновляем -> sv смотрит на освобождённую память -> UB
+
+    return 0;
 }
 ```
-
-
----
----
-
-
-## Этап 7. Подводные камни
-
-- Хочешь, разберём следующий подводный камень — `co_await` временных объектов и время жизни внутри awaiter (тонкая разновидность той же проблемы), или аллокации фрейма и попытки их устранить (HALO, кастомный `operator new` для промиса)?
-- 
-- Время жизни объектов и аргументов относительно coroutine frame
-- Аллокации и попытки их избежать (Heap Allocation Elision Optimization, HALO)
-- Отладка: почему стек-трейсы корутин «непривычны»
-
----
