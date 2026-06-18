@@ -2,9 +2,9 @@
 .build/
 .venv/
 
-.claude/settings.local.json
-
+*.txt
+*.json
 *.exe
 *.pdb
-
-raw data/vacancies/data/
+*.html
+*.bin

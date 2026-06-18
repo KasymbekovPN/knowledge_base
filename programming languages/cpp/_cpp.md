@@ -6,7 +6,7 @@ tags:
 - [[__programm structure index__|Структура программы]]
 - [[_cpp syntax|Синтаксис]]
 - [[__cpp data types index__|Типы данных]]
-- [[__cpp IO__|IO]]
+- [[programming languages/cpp/IO/_|IO]]
 - [[_cpp containers|Containers]]
 - [[programming languages/cpp/string/_|string]]
 - [[programming languages/cpp/move semantic/_|move semantic]]
@@ -18,15 +18,3 @@ tags:
 - [[programming languages/cpp/concepts/_|concepts]]
 - [[programming languages/cpp/threads/_|threads]]
 - [[programming languages/cpp/coroutine/_|coroutine]]
-
----
-
-
-IO
-https://metanit.com/cpp/tutorial/8.1.php
-
-debug
-
-cmake
-
-стандарты и особенности

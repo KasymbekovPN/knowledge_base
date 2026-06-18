@@ -247,116 +247,121 @@ result = 84
 allocs = 8
 ```
 
----
-
-
 ### custom new
 ```cpp
-#include <coroutine>
-#include <cstddef>
-#include <cstdio>
-#include <cstdlib>
+#include <iostream>
+#include <format>
 #include <new>
 #include <utility>
+#include <coroutine>
 
-// Глобальный счётчик "обычных" аллокаций кучи
-static long g_heap_allocs = 0;
-void* operator new(std::size_t n) {
-    g_heap_allocs++;
-    if (void* p = std::malloc(n)) return p;
-    throw std::bad_alloc{};
+static long g_heap_allocs{};
+void* operator new(std::size_t _n) {
+    g_heap_allocs++;
+    if (void* p = std::malloc(_n)) return p;
+
+    throw std::bad_alloc{};
 }
-void operator delete(void* p) noexcept { std::free(p); }
-void operator delete(void* p, std::size_t) noexcept { std::free(p); }
+void operator delete(void* _p) noexcept { std::free(_p); }
+void operator delete(void* _p, std::size_t) noexcept { std::free(_p); }
 
 // Простейшая арена: выдаёт куски из заранее выделенного буфера, не трогая кучу
 struct Arena {
-    static constexpr std::size_t SIZE = 64 * 1024;
-    alignas(std::max_align_t) unsigned char buffer[SIZE];
-    std::size_t offset = 0;
-    long        frame_allocs = 0;
+    static constexpr std::size_t SIZE = 64 * 1024;
+    alignas(std::max_align_t) unsigned char buffer[SIZE];
+    std::size_t offset{};
+    long frame_allocs{};
 
-    void* allocate(std::size_t n) {
-        n = (n + 15) & ~std::size_t(15);      // выравнивание до 16
-        if (offset + n > SIZE) throw std::bad_alloc{};
-        void* p = buffer + offset;
-        offset += n;
-        frame_allocs++;
-        return p;
-    }
-    void reset() { offset = 0; }
+    void* allocate(std::size_t _n) {
+        _n = (_n + 15) & ~std::size_t(15); // выравнивание до 16
+        if (offset + _n > SIZE) throw std::bad_alloc{};
+        void* p = buffer + offset;
+        offset += _n;
+        frame_allocs++;
+
+        return p;
+    }
+    void reset() { offset = 0; }
 };
 
 Arena g_arena;
 
 struct Task {
-    struct promise_type {
-        // КАСТОМНЫЙ operator new: frame берётся из арены, НЕ из кучи
-        static void* operator new(std::size_t n) {
-            return g_arena.allocate(n);
-        }
-        // парный delete: арена освобождает оптом через reset(), тут no-op
-        static void operator delete(void*, std::size_t) noexcept {}
+    struct promise_type {
+        // КАСТОМНЫЙ operator new: frame берётся из арены, НЕ из кучи
+        static void* operator new(std::size_t _n) {
+            return g_arena.allocate(_n);
+        }
+        // парный delete: арена освобождает оптом через reset(), тут no-op
+        static void operator delete(void*, std::size_t) noexcept {}
 
-        Task get_return_object() {
-            return Task{std::coroutine_handle<promise_type>::from_promise(*this)};
-        }
-        std::suspend_always initial_suspend() noexcept { return {}; }
-        std::suspend_always final_suspend()   noexcept { return {}; }
-        void return_void() {}
-        void unhandled_exception() {}
-    };
-    std::coroutine_handle<promise_type> h;
-    explicit Task(std::coroutine_handle<promise_type> handle) : h(handle) {}
-    Task(Task&& o) noexcept : h(std::exchange(o.h, {})) {}
-    ~Task() { if (h) h.destroy(); }
+        Task get_return_object() {
+            return Task{std::coroutine_handle<promise_type>::from_promise(*this)};
+        }
+        std::suspend_always initial_suspend() noexcept { return {}; }
+        std::suspend_always final_suspend() noexcept { return {};}
+        void return_void() {}
+        void unhandled_exception() {}
+    };
+
+    std::coroutine_handle<promise_type> h;
+
+    explicit Task(std::coroutine_handle<promise_type> _h): h{_h} {}
+    Task(Task&& _other) noexcept: h(std::exchange(_other.h, {})) {}
+    ~Task() { if (h) h.destroy(); }
 };
 
-Task worker(int id) {
-    co_await std::suspend_always{};
-    (void)id;
-    co_return;
+Task worker(int _id) {
+    co_await std::suspend_always();
+    std::cout << std::format("[worker] {}\n", _id);
+
+    co_return;
 }
 
 int main() {
-    std::printf("start: heap_allocs=%ld\n", g_heap_allocs);
+    std::cout << std::format("start: heap_allocs: {}", g_heap_allocs);
 
-    // создаём МНОГО корутин — все frame'ы идут в арену, куча не трогается
-    constexpr int N = 1000;
-    Task* tasks = static_cast<Task*>(::operator new(sizeof(Task) * N)); // 1 аллокация под массив
-    long heap_before = g_heap_allocs;
+    // создаём МНОГО корутин — все frame'ы идут в арену, куча не трогается
+    constexpr int N{1000};
 
-    for (int i = 0; i < N; ++i) {
-        new (&tasks[i]) Task(worker(i));   // создание корутины -> frame в арене
-    }
-    std::printf("after creating %d coroutines:\n", N);
-    std::printf("  frames in arena = %ld\n", g_arena.frame_allocs);
-    std::printf("  heap allocs for frames = %ld  (должно быть 0!)\n",
-                g_heap_allocs - heap_before);
+    // 1 аллокация под массив
+    Task* tasks = static_cast<Task*>(::operator new(sizeof(Task) * N));
+    long heap_before{g_heap_allocs};
 
-    for (int i = 0; i < N; ++i) {
-        tasks[i].h.resume();               // доводим до конца
-        tasks[i].~Task();                  // destroy frame
-    }
-    ::operator delete(tasks);
-    return 0;
+    for (int i{}; i < N; ++i) {
+        new (&tasks[i]) Task(worker(i)); // создание корутины -> frame в арене
+    }
+
+    std::cout << std::format("after creating {} coroutines\n", N);
+    std::cout << std::format("  frames in area = {}\n", g_arena.frame_allocs);
+    std::cout << std::format(
+        "  g_heap_allocs for frame = {} (must be 0)\n",
+        g_heap_allocs - heap_before
+    );
+
+    for (int i{}; i < N; ++i) {
+        auto&& task = tasks[i];
+        task.h.resume();
+        task.h.resume();
+        task.~Task();
+    }
+
+    ::operator delete(tasks);
+
+    return 0;
 }
 ```
 
----
-
-Остался последний пункт плана по подводным камням — **отладка корутин**: почему стек-трейсы выглядят непривычно (те самые `.actor`-фреймы, что мелькали в выводе ASan — это трансформированное компилятором тело корутины, разбитое на части), как отладчик показывает приостановленную корутину, где искать локальные переменные корутины в памяти, и почему точки останова ведут себя не так, как в обычных функциях. Разберём?
-
-
----
-
-
-## Этап 7. Подводные камни
-
-- Хочешь, разберём следующий подводный камень — `co_await` временных объектов и время жизни внутри awaiter (тонкая разновидность той же проблемы), или аллокации фрейма и попытки их устранить (HALO, кастомный `operator new` для промиса)?
-- 
-- Время жизни объектов и аргументов относительно coroutine frame
-- Аллокации и попытки их избежать (Heap Allocation Elision Optimization, HALO)
-- Отладка: почему стек-трейсы корутин «непривычны»
-
----
+```
+start: heap_allocs: 4after creating 1000 coroutines
+  frames in area = 1000
+  g_heap_allocs for frame = 2 (must be 0)
+[worker] 0
+[worker] 1
+[worker] 2
+[worker] 3
+// ...
+[worker] 997
+[worker] 998
+[worker] 999
+```
