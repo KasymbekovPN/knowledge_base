@@ -18,3 +18,4 @@ tags:
 - [[programming languages/cpp/concepts/_|concepts]]
 - [[programming languages/cpp/threads/_|threads]]
 - [[programming languages/cpp/coroutine/_|coroutine]]
+- [[programming languages/cpp/module/_|module]]
