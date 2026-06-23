@@ -3,7 +3,7 @@
     "cmake.configureSettings": {
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
     },
-    "cmake.sourceDirectory": "C:/projects/knowledge_base/programming languages/cmake/code",
+    "cmake.sourceDirectory": "C:/projects/knowledge_base/programming languages/cpp/module/code/011 build & tools/simple",
     "cmake.buildDirectory": "${workspaceFolder}/.build/${buildType}",
     "python-envs.defaultEnvManager": "ms-python.python:system",
     "python-envs.pythonProjects": [
