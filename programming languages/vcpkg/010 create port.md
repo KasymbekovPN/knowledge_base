@@ -343,22 +343,3 @@ vcpkg install shapes-core --overlay-ports=./ports
 Порт = `vcpkg.json` (метаданные) + `portfile.cmake` (скрипт получения и сборки). Стандартный скелет CMake-порта: `vcpkg_from_github` (с `REF` и `SHA512`) → `vcpkg_cmake_configure` (с отключёнными тестами) → `vcpkg_cmake_install` → `vcpkg_cmake_config_fixup` → очистка debug-дублей → `vcpkg_install_copyright`. Правки исходников оформляются патчами, а не ручным редактированием. Отлаживают порт через overlay-ports, глядя в логи `buildtrees/`, после чего публикуют в реестр через `x-add-version`.
 
 Дальше по плану — **продвинутые темы**: binary caching, asset caching, использование в CI/CD, кросс-компиляция, overlay ports/triplets. Перейдём?
-
----
----
----
-
-## 9. Продвинутые темы
-
-- Binary caching (кэширование собранных бинарников)
-- Asset caching
-- Использование в CI/CD (GitHub Actions, GitLab CI)
-- Кросс-компиляция
-- Overlay ports и overlay triplets
-
-## 10. Практика
-
-- Небольшой проект с 2–3 зависимостями в manifest mode
-- Перевод существующего проекта на vcpkg
-- Настройка binary cache в CI
-- Создание и публикация собственного порта
