@@ -13,6 +13,8 @@ cmake --build .build
 #include "test_regex.h"
 #include "test_spirit.h"
 #include "test_multiprecision.h"
+#include "test_graph.h"
+#include "test_asio.h"
 
 int main() {
     // test_optional::test();
@@ -23,5 +25,11 @@ int main() {
     // test_filesystem::test();
     // test_regex::test();
     // test_spirit::test();
-    test_multiprecision::test();
+    // test_multiprecision::test();
+    // test_graph::test_dijkstra();
+    // test_graph::test_bundled_properties();
+    // test_asio::test_timer();
+    // test_asio::test_buffer();
+    // test_asio::test_sync_tcp();
+    test_asio::test_async_tcp();
 }
