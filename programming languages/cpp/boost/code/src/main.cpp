@@ -15,6 +15,7 @@ cmake --build .build
 #include "test_multiprecision.h"
 #include "test_graph.h"
 #include "test_asio.h"
+#include "test_beast.h"
 
 int main() {
     // test_optional::test();
@@ -31,5 +32,12 @@ int main() {
     // test_asio::test_timer();
     // test_asio::test_buffer();
     // test_asio::test_sync_tcp();
-    test_asio::test_async_tcp();
+    // test_asio::test_async_tcp();
+    // test_asio::test_strands_for_counter();
+    // test_asio::test_coroutine();
+    // test_beast::test_sync_http_client();
+    // test_beast::test_sync_http_server();
+    // test_beast::test_async_http_server();
+    test_beast::test_ws();
 }
+

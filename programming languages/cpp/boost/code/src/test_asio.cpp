@@ -1,10 +1,18 @@
 #include <boost/asio.hpp>
+#include <boost/asio/co_spawn.hpp>
+#include <boost/asio/detached.hpp>
+#include <boost/asio/awaitable.hpp>
+#include <boost/asio/use_awaitable.hpp>
+
 #include <chrono>
 #include <iostream>
 #include <format>
 #include <memory>
 #include <thread>
 #include <array>
+
+#include "../../../IO/code/socket/socketbuf.h"
+#include "../.build/vcpkg_installed/x64-windows/share/boost-1.91.0/random/haertel.hpp"
 
 namespace test_asio {
 
@@ -112,7 +120,6 @@ private:
     boost::asio::ip::tcp::acceptor acceptor_;
 };
 
-
 // --- client part(sync) ---
 
 void start_client_thread() {
@@ -166,6 +173,206 @@ void test_async_tcp() {
     stop_thread.join();
 
     std::cout << "DONE!\n";
+}
+
+// Общий ресурс, к которому обращаются обработчики из разных потоков
+class Counter: public std::enable_shared_from_this<Counter> {
+public:
+    Counter(
+        boost::asio::io_context& _io,
+        int _id,
+        std::chrono::milliseconds _interval = std::chrono::milliseconds(10)
+        ):
+        strand_{boost::asio::make_strand(_io)},
+        timer_{_io},
+        id_{_id},
+        interval_{_interval} {}
+
+    void start() { schedule(); }
+    unsigned long long value() const { return value_; }
+private:
+    void schedule() {
+        timer_.expires_after(interval_);
+
+        auto self = shared_from_this();
+        // bind_executor связывает обработчик со strand'ом:
+        // обработчики этого strand'а НЕ выполнятся одновременно
+        timer_.async_wait(boost::asio::bind_executor(
+            strand_,
+            [this, self](const boost::system::error_code& _ec) {
+                if (!_ec) on_tick();
+            }));
+    }
+
+    void on_tick() {
+        // Этот код защищён strand'ом: даже при 4 потоках в пуле
+        // два on_tick одного Counter НЕ выполнятся параллельно.
+        // Поэтому ++value_ безопасен БЕЗ мьютекса.
+
+        if (++value_ < 100) { schedule(); }
+    }
+
+    boost::asio::strand<boost::asio::io_context::executor_type> strand_;
+    boost::asio::steady_timer timer_;
+    int id_{0};
+    unsigned long long value_{0};
+    std::chrono::milliseconds interval_;
+};
+
+
+void test_strands_for_counter() {
+    boost::asio::io_context io;
+
+    // удерживаем io_context от преждевременной остановки
+    auto work = boost::asio::make_work_guard(io);
+
+    // создаём несколько счётчиков, каждый со своим strand'ом
+    std::vector<std::shared_ptr<Counter>> counters;
+    for (int i{}; i < 3; ++i) {
+        auto c = std::make_shared<Counter>(io, i, std::chrono::milliseconds(100));
+        c->start();
+        counters.push_back(c);
+    }
+
+    // пул из 4 потоков — обработчики могут идти параллельно
+    std::vector<std::thread> pool;
+    for (int i{}; i < 4; ++i)
+        pool.emplace_back([&io] { io.run(); });
+
+    // даём поработать и останавливаем
+    std::this_thread::sleep_for(std::chrono::milliseconds(1500));
+
+    // разрешаем io.run() завершиться, когда работа кончится
+    work.reset();
+    io.stop();
+
+    for (auto& t : pool) t.join();
+
+    for (auto& c : counters) {
+        std::cout << std::format("Final value: {}\n", c->value());
+    }
+}
+
+// --- SERVER ---
+static boost::asio::awaitable<void> handle_session(boost::asio::ip::tcp::socket _socket) {
+    try {
+        char data[1024];
+        for (;;) {
+            // co_await приостанавливает корутину, не блокируя поток.
+            // Когда данные придут, выполнение продолжится с этой строки.
+            std::size_t n{co_await _socket.async_read_some(
+                boost::asio::buffer(data),
+                boost::asio::use_awaitable)};
+
+            std::cout << std::format("[SERVER] Took: {}\n", std::string(data, n));
+
+            // отправляем эхо обратно — снова co_await
+            co_await boost::asio::async_write(
+                _socket,
+                boost::asio::buffer(data, n),
+                boost::asio::use_awaitable);
+        }
+    } catch (const std::exception& e) {
+        // при закрытии соединения async_read_some бросит исключение (EOF)
+        std::cout << std::format("[SERVER] Session closed: {}\n", e.what());
+    }
+}
+
+// --- SERVER ---
+
+static boost::asio::awaitable<void> listener(boost::asio::io_context& _io, unsigned short _port) {
+    boost::asio::ip::tcp::acceptor acceptor(
+        _io,
+        boost::asio::ip::tcp::endpoint(
+            boost::asio::ip::tcp::v4(),
+            _port
+        )
+    );
+    std::cout << std::format("[SERVER] listen to port {}\n", _port);
+
+    for (;;) {
+        // ждём входящее соединение асинхронно
+        boost::asio::ip::tcp::socket socket = co_await acceptor.async_accept(
+            boost::asio::use_awaitable
+        );
+        std::cout << std::format("[SERVER] New connection\n");
+
+        // запускаем обработку сессии как отдельную корутину;
+        // detached — нам не нужен её результат, она живёт сама по себе
+        boost::asio::co_spawn(_io, handle_session(std::move(socket)), boost::asio::detached);
+    }
+}
+
+// --- CLIENT ---
+boost::asio::awaitable<void> client(boost::asio::io_context& _io) {
+    try {
+        boost::asio::ip::tcp::resolver resolver(_io);
+        // асинхронный DNS-резолвинг
+        auto endpoints = co_await resolver.async_resolve(
+            "127.0.0.1",
+            "12345",
+            boost::asio::use_awaitable);
+        boost::asio::ip::tcp::socket socket{_io};
+        // асинхронное подключение
+        co_await boost::asio::async_connect(socket, endpoints, boost::asio::use_awaitable);
+        std::cout << std::format("[CLIENT] Connected\n");
+
+        for (int i{1}; i <= 5; ++i) {
+            std::string message{std::format("Message #{}\n", i)};
+
+            // отправка
+            co_await boost::asio::async_write(
+                socket,
+                boost::asio::buffer(message),
+                boost::asio::use_awaitable);
+            std::cout << std::format("[CLIENT] Send: {}\n", message);
+
+            // чтение эха
+            char reply[1024];
+            std::size_t n{co_await socket.async_read_some(
+                boost::asio::buffer(reply),
+                boost::asio::use_awaitable)};
+            std::cout << std::format("[CLIENT] Echo: {}\n", std::string(reply, n));
+
+            // асинхронная пауза через таймер (не блокирует поток!)
+            boost::asio::steady_timer timer{_io, std::chrono::milliseconds(1000)};
+            co_await timer.async_wait(boost::asio::use_awaitable);
+        }
+
+        boost::system::error_code ec;
+        socket.shutdown(boost::asio::ip::tcp::socket::shutdown_both, ec);
+        std::cout << std::format("[CLIENT] Shutting down...\n");
+    } catch (const std::exception& e) {
+        std::cerr << std::format("[CLIENT] Exception: {}\n", e.what());
+    }
+}
+
+void test_coroutine() {
+    try {
+        boost::asio::io_context io;
+
+        // запускаем серверную корутину
+        boost::asio::co_spawn(io, listener(io, 12345), boost::asio::detached);
+
+        // запускаем клиентскую корутину с небольшой задержкой
+        boost::asio::co_spawn(io, [&io]() -> boost::asio::awaitable<void> {
+            boost::asio::steady_timer t{io, std::chrono::milliseconds(300)};
+            co_await t.async_wait(boost::asio::use_awaitable);
+            co_await client(io);
+
+            // клиент закончил — останавливаем io_context через 1 секунду
+            boost::asio::steady_timer t2{io, std::chrono::milliseconds(1000)};
+            co_await t2.async_wait(boost::asio::use_awaitable);
+            io.stop();
+        }, boost::asio::detached);
+
+        // один поток крутит всё: и сервер, и клиент
+        io.run();
+
+        std::cout << std::format("[CLIENT] Done!\n");
+    } catch (const std::exception& e) {
+        std::cerr << std::format("[CLIENT] Exception: {}\n", e.what());
+    }
 }
 
 }

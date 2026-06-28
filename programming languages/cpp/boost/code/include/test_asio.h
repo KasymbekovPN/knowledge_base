@@ -5,4 +5,6 @@ namespace test_asio {
     void test_buffer();
     void test_sync_tcp();
     void test_async_tcp();
+    void test_strands_for_counter();
+    void test_coroutine();
 }

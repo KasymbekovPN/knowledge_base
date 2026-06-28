@@ -184,6 +184,8 @@ Data: Hello
 #include <boost/asio.hpp>
 #include <iostream>
 
+// ...
+
 void test_sync_tcp() {  
     const std::string HOST_NAME{"example.com"};  
     boost::asio::io_context io;  
@@ -244,57 +246,7 @@ CF-RAY: a11cc6952b508db3-HEL
 #include <chrono>
 #include <array>
 
-#include <boost/asio.hpp>  
-#include <chrono>  
-#include <iostream>  
-#include <format>  
-#include <memory>  
-#include <thread>  
-#include <array>  
-  
-namespace test_asio {  
-  
-void test_timer() {  
-    const int SECONDS{2};  
-    boost::asio::io_context io;  
-    boost::asio::steady_timer timer{io, std::chrono::seconds{SECONDS}};  
-  
-    timer.async_wait([seconds = SECONDS](const boost::system::error_code& ec) {  
-        if (!ec) std::cout << std::format("The timer went off after {} seconds!\n", seconds);  
-    });  
-    std::cout << "Wait...\n";  
-    io.run();  
-}  
-  
-void test_buffer() {  
-    std::string message{"Hello"};  
-    auto buf = boost::asio::buffer(message);  
-  
-    std::cout << "Buffer size: " << buf.size() << "\n";  
-    std::cout << "Data: " << std::string(static_cast<const char*>(buf.data()), buf.size()) << "\n";  
-}  
-  
-void test_sync_tcp() {  
-    const std::string HOST_NAME{"example.com"};  
-    boost::asio::io_context io;  
-    boost::asio::ip::tcp::resolver resolver{io};  
-    auto endpoints = resolver.resolve(HOST_NAME, "80");  
-  
-    boost::asio::ip::tcp::socket socket {io};  
-    boost::asio::connect(socket, endpoints);  
-  
-    std::string request =  
-         std::format("GET / HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n", HOST_NAME);  
-    boost::asio::write(socket, boost::asio::buffer(request));  
-  
-    boost::asio::streambuf response;  
-    boost::system::error_code ec;  
-    boost::asio::read(socket, response, ec);  
-  
-    std::cout  
-        << "EC: " << ec.message() << "\n"  
-        << "Response:\n" << &response << std::endl;  
-}  
+// ...
   
 // --- server part (async) ---  
   
@@ -398,8 +350,7 @@ void test_async_tcp() {
   
     std::cout << "DONE!\n";  
 }  
-  
-}
+
 ```
 
 ```
@@ -461,63 +412,407 @@ for (auto& th : pool) th.join();
 
 Но тогда для каждого `Session`, к которому могут обращаться разные потоки, нужен `strand`, оборачивающий его обработчики, — иначе чтение и запись на одном сокете могут пойти параллельно.
 
-
-
----
----
----
----
-
 ## 8. Strands — синхронизация без мьютексов
 
-Когда несколько потоков вызывают `io.run()`, обработчики могут выполняться параллельно. `strand` гарантирует, что обработчики, отправленные через него, **не пересекаются** во времени:
+Покажу проблему, которую решают strand'ы, и затем решение. Сценарий: несколько потоков крутят один `io_context`, и несколько асинхронных операций обращаются к **общему состоянию** одного объекта. Без strand'а обработчики могут выполняться параллельно и портить данные; strand сериализует их.
 
+## Пример: счётчик, обновляемый несколькими таймерами
+
+Несколько таймеров асинхронно инкрементируют общий счётчик. `io_context` запущен в пуле из 4 потоков, поэтому обработчики таймеров реально выполняются параллельно.
+
+### include/test_asio.cpp
 ```cpp
+#include <boost/asio.hpp>
+#include <iostream>
+#include <vector>
+#include <thread>
+#include <memory>
 
-//< !!! более развернутый пример
+// ...
 
-boost::asio::strand<boost::asio::io_context::executor_type> strand(io.get_executor());
-
-// Обработчики, обёрнутые в strand, не выполнятся одновременно
-timer.async_wait(boost::asio::bind_executor(strand, handler));
+// Общий ресурс, к которому обращаются обработчики из разных потоков  
+class Counter: public std::enable_shared_from_this<Counter> {  
+public:  
+    Counter(  
+        boost::asio::io_context& _io,  
+        int _id,  
+        std::chrono::milliseconds _interval = std::chrono::milliseconds(10)  
+        ):  
+        strand_{boost::asio::make_strand(_io)},  
+        timer_{_io},  
+        id_{_id},  
+        interval_{_interval} {}  
+  
+    void start() { schedule(); }  
+    unsigned long long value() const { return value_; }  
+private:  
+    void schedule() {  
+        timer_.expires_after(interval_);  
+  
+        auto self = shared_from_this();  
+        // bind_executor связывает обработчик со strand'ом:  
+        // обработчики этого strand'а НЕ выполнятся одновременно        timer_.async_wait(boost::asio::bind_executor(  
+            strand_,  
+            [this, self](const boost::system::error_code& _ec) {  
+                if (!_ec) on_tick();  
+            }));    }  
+    void on_tick() {  
+        // Этот код защищён strand'ом: даже при 4 потоках в пуле  
+        // два on_tick одного Counter НЕ выполнятся параллельно.        // Поэтому ++value_ безопасен БЕЗ мьютекса.  
+        if (++value_ < 100) { schedule(); }  
+    }  
+    boost::asio::strand<boost::asio::io_context::executor_type> strand_;  
+    boost::asio::steady_timer timer_;  
+    int id_{0};  
+    unsigned long long value_{0};  
+    std::chrono::milliseconds interval_;  
+};  
+  
+  
+void test_strands_for_counter() {  
+    boost::asio::io_context io;  
+  
+    // удерживаем io_context от преждевременной остановки  
+    auto work = boost::asio::make_work_guard(io);  
+  
+    // создаём несколько счётчиков, каждый со своим strand'ом  
+    std::vector<std::shared_ptr<Counter>> counters;  
+    for (int i{}; i < 3; ++i) {  
+        auto c = std::make_shared<Counter>(io, i, std::chrono::milliseconds(100));  
+        c->start();  
+        counters.push_back(c);  
+    }  
+    // пул из 4 потоков — обработчики могут идти параллельно  
+    std::vector<std::thread> pool;  
+    for (int i{}; i < 4; ++i)  
+        pool.emplace_back([&io] { io.run(); });  
+  
+    // даём поработать и останавливаем  
+    std::this_thread::sleep_for(std::chrono::milliseconds(1500));  
+  
+    // разрешаем io.run() завершиться, когда работа кончится  
+    work.reset();  
+    io.stop();  
+  
+    for (auto& t : pool) t.join();  
+  
+    for (auto& c : counters) {  
+        std::cout << std::format("Final value: {}\n", c->value());  
+    }}
 ```
 
-Это даёт потокобезопасность без явных мьютексов в обработчиках одного логического объекта.
+```
+Final value: 13
+Final value: 13
+Final value: 13
+```
 
----
+
+## Где здесь strand и что он гарантирует
+
+**Создание:**
+
+```cpp
+strand_(boost::asio::make_strand(io))
+```
+
+`make_strand` создаёт strand, связанный с executor'ом `io_context`.
+
+**Применение:**
+
+```cpp
+boost::asio::bind_executor(strand_, handler)
+```
+
+Обёрнутый так обработчик попадает в очередь strand'а. Asio гарантирует: **два обработчика одного strand'а никогда не выполняются одновременно**, даже если `io.run()` крутят несколько потоков.
+
+**Результат:** внутри `on_tick()` обращение к `value_` безопасно без мьютекса — strand уже сериализовал доступ. Каждый `Counter` имеет свой strand, поэтому разные счётчики могут обновляться параллельно (они не делят состояние), а внутри одного счётчика — строго по очереди.
+
+## Ключевые функции для работы со strand
+
+| Функция                                     | Назначение                                           |
+| ------------------------------------------- | ---------------------------------------------------- |
+| `make_strand(io)` / `make_strand(executor)` | Создать strand                                       |
+| `bind_executor(strand, handler)`            | Привязать обработчик к strand'у (для `async_*`)      |
+| `post(strand, handler)`                     | Поставить обработчик в очередь strand'а немедленно   |
+| `dispatch(strand, handler)`                 | То же, но может выполнить сразу, если уже в strand'е |
+
+## Когда нужен strand
+
+|Ситуация|Нужен ли strand|
+|---|---|
+|`io.run()` в **одном** потоке|Нет — обработчики и так не пересекаются|
+|Пул потоков + объект без общего состояния|Нет|
+|Пул потоков + общее изменяемое состояние / один сокет|**Да**|
+|Несколько независимых объектов|По strand'у на объект|
+## Главное про strand
+
+- Strand **сериализует** обработчики: они не выполняются одновременно, но порядок постановки сохраняется.
+- Это альтернатива мьютексам внутри async-кода: **без блокировок, без риска deadlock**.
+- Один strand — на один логический объект с общим состоянием (счётчик, соединение).
+- Применяется через `bind_executor` (для async-операций) или `post`/`dispatch` (для отложенного вызова).
+- Имеет смысл **только** при многопоточном `io_context`; при однопоточном `run()` он избыточен.
 
 ## 9. Корутины (современный стиль, C++20)
 
-Asio поддерживает `co_await` — асинхронный код выглядит как синхронный:
+Полноценный эхо-сервер на корутинах плюс клиент, тоже на корутинах. Корутины убирают «лапшу» из вложенных колбэков: асинхронный код читается линейно, как синхронный, но не блокирует поток.
 
 ```cpp
-
-//< !!!
-
 #include <boost/asio.hpp>
 #include <boost/asio/co_spawn.hpp>
 #include <boost/asio/detached.hpp>
+#include <boost/asio/awaitable.hpp>
+#include <boost/asio/use_awaitable.hpp>
+#include <iostream>
+#include <string>
+#include <thread>
+#include <chrono>
 
-using boost::asio::awaitable;
-using boost::asio::use_awaitable;
-using boost::asio::ip::tcp;
+// ...
+// --- SERVER ---  
+static boost::asio::awaitable<void> handle_session(boost::asio::ip::tcp::socket _socket) {  
+    try {  
+        char data[1024];  
+        for (;;) {  
+            // co_await приостанавливает корутину, не блокируя поток.  
+            // Когда данные придут, выполнение продолжится с этой строки.            std::size_t n{co_await _socket.async_read_some(  
+                boost::asio::buffer(data),  
+                boost::asio::use_awaitable)};  
+  
+            std::cout << std::format("[SERVER] Took: {}\n", std::string(data, n));  
+  
+            // отправляем эхо обратно — снова co_await  
+            co_await boost::asio::async_write(  
+                _socket,  
+                boost::asio::buffer(data, n),  
+                boost::asio::use_awaitable);  
+        }    } catch (const std::exception& e) {  
+        // при закрытии соединения async_read_some бросит исключение (EOF)  
+        std::cout << std::format("[SERVER] Session closed: {}\n", e.what());  
+    }}  
+  
+// --- SERVER ---  
+  
+static boost::asio::awaitable<void> listener(boost::asio::io_context& _io, unsigned short _port) {  
+    boost::asio::ip::tcp::acceptor acceptor(  
+        _io,  
+        boost::asio::ip::tcp::endpoint(  
+            boost::asio::ip::tcp::v4(),  
+            _port  
+        )  
+    );    std::cout << std::format("[SERVER] listen to port {}\n", _port);  
+  
+    for (;;) {  
+        // ждём входящее соединение асинхронно  
+        boost::asio::ip::tcp::socket socket = co_await acceptor.async_accept(  
+            boost::asio::use_awaitable  
+        );  
+        std::cout << std::format("[SERVER] New connection\n");  
+  
+        // запускаем обработку сессии как отдельную корутину;  
+        // detached — нам не нужен её результат, она живёт сама по себе        boost::asio::co_spawn(_io, handle_session(std::move(socket)), boost::asio::detached);  
+    }}  
+  
+// --- CLIENT ---  
+boost::asio::awaitable<void> client(boost::asio::io_context& _io) {  
+    try {  
+        boost::asio::ip::tcp::resolver resolver(_io);  
+        // асинхронный DNS-резолвинг  
+        auto endpoints = co_await resolver.async_resolve(  
+            "127.0.0.1",  
+            "12345",  
+            boost::asio::use_awaitable);  
+        boost::asio::ip::tcp::socket socket{_io};  
+        // асинхронное подключение  
+        co_await boost::asio::async_connect(socket, endpoints, boost::asio::use_awaitable);  
+        std::cout << std::format("[CLIENT] Connected\n");  
+  
+        for (int i{1}; i <= 5; ++i) {  
+            std::string message{std::format("Message #{}\n", i)};  
+  
+            // отправка  
+            co_await boost::asio::async_write(  
+                socket,  
+                boost::asio::buffer(message),  
+                boost::asio::use_awaitable);  
+            std::cout << std::format("[CLIENT] Send: {}\n", message);  
+  
+            // чтение эха  
+            char reply[1024];  
+            std::size_t n{co_await socket.async_read_some(  
+                boost::asio::buffer(reply),  
+                boost::asio::use_awaitable)};  
+            std::cout << std::format("[CLIENT] Echo: {}\n", std::string(reply, n));  
+  
+            // асинхронная пауза через таймер (не блокирует поток!)  
+            boost::asio::steady_timer timer{_io, std::chrono::milliseconds(1000)};  
+            co_await timer.async_wait(boost::asio::use_awaitable);  
+        }  
+        boost::system::error_code ec;  
+        socket.shutdown(boost::asio::ip::tcp::socket::shutdown_both, ec);  
+        std::cout << std::format("[CLIENT] Shutting down...\n");  
+    } catch (const std::exception& e) {  
+        std::cerr << std::format("[CLIENT] Exception: {}\n", e.what());  
+    }}  
+  
+void test_coroutine() {  
+    try {  
+        boost::asio::io_context io;  
+  
+        // запускаем серверную корутину  
+        boost::asio::co_spawn(io, listener(io, 12345), boost::asio::detached);  
+  
+        // запускаем клиентскую корутину с небольшой задержкой  
+        boost::asio::co_spawn(io, [&io]() -> boost::asio::awaitable<void> {  
+            boost::asio::steady_timer t{io, std::chrono::milliseconds(300)};  
+            co_await t.async_wait(boost::asio::use_awaitable);  
+            co_await client(io);  
+  
+            // клиент закончил — останавливаем io_context через 1 секунду  
+            boost::asio::steady_timer t2{io, std::chrono::milliseconds(1000)};  
+            co_await t2.async_wait(boost::asio::use_awaitable);  
+            io.stop();  
+        }, boost::asio::detached);  
+  
+        // один поток крутит всё: и сервер, и клиент  
+        io.run();  
+  
+        std::cout << std::format("[CLIENT] Done!\n");  
+    } catch (const std::exception& e) {  
+        std::cerr << std::format("[CLIENT] Exception: {}\n", e.what());  
+    }}
 
-awaitable<void> echo(tcp::socket socket) {
-    char data[1024];
-    for (;;) {
-        std::size_t n = co_await socket.async_read_some(
-            boost::asio::buffer(data), use_awaitable);
-        co_await boost::asio::async_write(
-            socket, boost::asio::buffer(data, n), use_awaitable);
-    }
-}
-
-// запуск: co_spawn(io, echo(std::move(socket)), boost::asio::detached);
 ```
 
-> Корутины — рекомендуемый современный подход: убирают «лапшу» из вложенных колбэков.
+```
+[SERVER] listen to port 12345
+[SERVER] New connection
+[CLIENT] Connected
+[SERVER] Took: Message #1
 
----
+[CLIENT] Send: Message #1
+
+[CLIENT] Echo: Message #1
+
+[SERVER] Took: Message #2
+
+[CLIENT] Send: Message #2
+
+[CLIENT] Echo: Message #2
+
+[SERVER] Took: Message #3
+
+[CLIENT] Send: Message #3
+
+[CLIENT] Echo: Message #3
+
+[SERVER] Took: Message #4
+
+[CLIENT] Send: Message #4
+
+[CLIENT] Echo: Message #4
+
+[SERVER] Took: Message #5
+
+[CLIENT] Send: Message #5
+
+[CLIENT] Echo: Message #5
+
+[CLIENT] Shutting down...
+[SERVER] Session closed: End of file [asio.misc:2 at C:/projects/knowledge_base/programming languages/cpp/boost/code/.build/vcpkg_installed/x64-windows/include\boost/asio/detail/win_iocp_socket_recv_op.hpp:90:33 in function 'static void __cdecl boost::asio::detail::win_iocp_socket_recv_op<boost::asio::mutable_buffer, boost::asio::detail::awaitable_handler<boost::asio::any_io_executor, boost::system::error_code, unsigned long long>, boost::asio::any_io_executor>::do_complete(void *, operation *, const boost::system::error_code &, std::size_t) [MutableBufferSequence = boost::asio::mutable_buffer, Handler = boost::asio::detail::awaitable_handler<boost::asio::any_io_executor, boost::system::error_code, unsigned long long>, IoExecutor = boost::asio::any_io_executor]']
+[CLIENT] Done!
+```
+
+## Ключевые элементы корутинной модели
+
+### `awaitable<T>`
+
+Тип возвращаемого значения корутины Asio. `awaitable<void>` — корутина без результата, `awaitable<std::size_t>` — возвращающая число и т.д. Функция, возвращающая `awaitable<...>` и содержащая `co_await`/`co_return`, и есть корутина.
+
+### `co_await` + `use_awaitable`
+
+```cpp
+std::size_t n = co_await socket.async_read_some(buffer, use_awaitable);
+```
+
+`use_awaitable` — это **completion token**, говорящий Asio: «оформи эту async-операцию как awaitable». `co_await` приостанавливает корутину до завершения операции, **освобождая поток** для другой работы. Когда операция завершится, выполнение продолжится со следующей строки, а результат вернётся как обычное значение.
+
+### `co_spawn`
+
+```cpp
+co_spawn(io, my_coroutine(), detached);
+```
+
+Запускает корутину на исполнение в `io_context`. Третий аргумент — completion token для результата самой корутины:
+
+|Токен|Поведение|
+|---|---|
+|`detached`|Результат игнорируется, корутина живёт сама|
+|лямбда/функция|Колбэк с результатом/исключением корутины|
+|`use_awaitable`|Дождаться из другой корутины (`co_await co_spawn(...)`)|
+
+### Обработка ошибок через исключения
+
+В корутинном стиле ошибки приходят как **исключения**, а не через `error_code`. Поэтому тело оборачивают в `try/catch`. Например, при закрытии соединения `async_read_some` бросит исключение — это нормальный сигнал завершения сессии.
+
+> Альтернатива: можно получать `error_code` вместо исключений, используя токен `as_tuple(use_awaitable)` — тогда операция вернёт `std::tuple<error_code, ...>` и не бросит.
+
+## Сравнение: тот же сервер на колбэках vs корутинах
+
+**Колбэки** (как в раннем примере) — логика размазана по методам `read()` и `write()`, каждый вызывает следующий через вложенные лямбды, плюс нужен `shared_from_this()` для продления жизни объекта.
+
+**Корутины** — вся логика сессии в одной функции `handle_session`, читается сверху вниз: прочитал → записал → повторил. Никаких ручных колбэков и `shared_from_this`: локальные переменные (`data`, `socket`) живут на «кадре» корутины автоматически.
+
+```cpp
+// Колбэки: «что дальше» прячется в следующей лямбде
+void read() {
+    socket_.async_read_some(buf, [self](auto ec, auto n){
+        if (!ec) write(n);   // переход к следующему шагу
+    });
+}
+
+// Корутина: «что дальше» — просто следующая строка
+for (;;) {
+    auto n = co_await socket.async_read_some(buf, use_awaitable);
+    co_await async_write(socket, buffer(data, n), use_awaitable);
+}
+```
+
+## CMake и требования
+
+```cmake
+cmake_minimum_required(VERSION 3.21)
+project(asio_coro LANGUAGES CXX)
+
+set(CMAKE_CXX_STANDARD 20)         # корутины требуют C++20
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+find_package(Boost REQUIRED COMPONENTS system)
+find_package(Threads REQUIRED)
+
+add_executable(app main.cpp)
+target_link_libraries(app PRIVATE Boost::system Threads::Threads)
+```
+
+Требования:
+
+- **C++20** обязателен (`-std=c++20` / `/std:c++20`).
+- Компиляторы: GCC 10+, Clang 14+, MSVC 2019 16.8+.
+- Boost достаточно свежий (1.70+, лучше новее — поддержка корутин в Asio активно дорабатывалась).
+
+## Почему это однопоточно и всё работает
+
+Обрати внимание: `io.run()` вызван из **одного** потока, но сервер и клиент работают «одновременно». Это и есть суть асинхронности: пока одна корутина ждёт на `co_await` (данные из сети, срабатывание таймера), поток не простаивает — он исполняет другую готовую корутину. Конкурентность без параллелизма. При необходимости можно добавить пул потоков (`io.run()` из нескольких), но тогда для общего состояния снова понадобятся strand'ы.
+
+## Когда выбирать корутины
+
+|Стиль|Когда|
+|---|---|
+|Корутины (`co_await`)|Новый код на C++20+; сложная последовательная логика; читаемость в приоритете|
+|Колбэки|Старые компиляторы (C++03/11/14); простые одношаговые операции; интеграция с готовым колбэк-кодом|
+|`use_future`|Нужен `std::future` для интеграции с другим асинхронным кодом|
+
+Для нового кода на C++20 корутины — рекомендуемый подход: они дают тот же асинхронный движок, что и колбэки, но без визуального усложнения и без ручного управления временем жизни объектов.
 
 ## 10. Completion tokens — гибкость стиля
 
@@ -532,12 +827,6 @@ Asio-операции принимают **completion token**, определя�
 | `yield_context`         | Стэкфул-корутины (Boost.Coroutine) |
 
 Один и тот же `async_read` можно использовать в любом стиле, меняя только токен.
-
-```cpp
-//< !!!
-```
-
----
 
 ## 11. UDP (кратко)
 
@@ -554,8 +843,6 @@ Asio-операции принимают **completion token**, определя�
 
 UDP не требует установки соединения — работаешь датаграммами напрямую.
 
----
-
 ## 12. Прочие возможности
 
 |Возможность|Тип|
@@ -565,8 +852,6 @@ UDP не требует установки соединения — работа
 |POSIX-дескрипторы|`posix::stream_descriptor`|
 |Пайпы|`readable_pipe` / `writable_pipe`|
 |SSL/TLS|`ssl::stream` (заголовок `<boost/asio/ssl.hpp>`, требует OpenSSL)|
-
----
 
 ## Сводка ключевых концепций
 
@@ -583,9 +868,6 @@ UDP не требует установки соединения — работа
 |`strand`|Сериализация обработчиков без мьютексов|
 |Корутины (`co_await`)|Современный плоский async-код|
 |Completion tokens|Выбор стиля: колбэк / future / корутина|
-
----
-
 ## Практические советы
 
 - **Начинай с таймеров**, затем синхронный клиент, потом асинхронный, и только потом сервер. Так модель усваивается постепенно.
@@ -595,195 +877,8 @@ UDP не требует установки соединения — работа
 - **Один `io_context` на несколько потоков** + `strand` — типичная схема масштабирования; не разделяй один сокет между потоками без strand.
 - **Asio — основа Beast.** Уверенно разберись здесь, прежде чем переходить к HTTP/WebSocket.
 
----
-
 ## Отличия от стандарта и контекст
 
 - Asio долго был кандидатом на стандартизацию (Networking TS), но в C++ так и **не вошёл** на момент C++23 — поэтому Boost.Asio (или его standalone-версия без Boost) остаётся стандартом де-факто для сетей в C++.
 - Существует **standalone Asio** (без зависимости от Boost) — тот же автор (Christopher Kohlhoff), почти идентичный API в namespace `asio::` вместо `boost::asio::`.
 - В стандартной библиотеке сетевых средств нет; ближайшее — сторонние библиотеки (libuv для C, POCO, Qt Network).
-
-
-
----
----
----
-
-## Этап 6. Сеть и асинхронность
-
-### 6.1 Boost.Asio
-
-Асинхронный ввод/вывод, таймеры, сокеты. Сердцевина сетевого программирования на Boost. В основном header-only, но требует системных библиотек (на Windows — ws2_32, на Linux — pthread; vcpkg/CMake подтянут зависимости автоматически).
-
-Начни с синхронного примера, затем переходи к асинхронному.
-
-```cpp
-#include <boost/asio.hpp>
-#include <iostream>
-
-int main() {
-    boost::asio::io_context io;
-    boost::asio::steady_timer timer(io, std::chrono::seconds(2));
-
-    timer.async_wait([](const boost::system::error_code& ec) {
-        if (!ec) std::cout << "Таймер сработал!\n";
-    });
-
-    std::cout << "Ожидание...\n";
-    io.run(); // блокируется, пока есть незавершённые операции
-}
-```
-
-CMake:
-
-```cmake
-find_package(Boost REQUIRED COMPONENTS system)
-find_package(Threads REQUIRED)
-target_link_libraries(app PRIVATE Boost::system Threads::Threads)
-```
-
-**Ключевое:** `io_context` и его роль, модель completion handlers, `async_*` операции, strands для синхронизации, корутины (`co_await` с `boost::asio::awaitable`). Это фундамент для Beast — изучай тщательно.
-
----
----
----
-
-### 6.2 Boost.Beast
-
-HTTP и WebSocket поверх Asio. Изучается **только после** уверенного владения Asio. Header-only, зависит от Asio.
-
-```cpp
-#include <boost/beast/core.hpp>
-#include <boost/beast/http.hpp>
-#include <boost/asio/connect.hpp>
-#include <boost/asio/ip/tcp.hpp>
-#include <iostream>
-
-namespace beast = boost::beast;
-namespace http = beast::http;
-namespace net = boost::asio;
-using tcp = net::ip::tcp;
-
-int main() {
-    net::io_context io;
-    tcp::resolver resolver(io);
-    beast::tcp_stream stream(io);
-
-    auto results = resolver.resolve("example.com", "80");
-    stream.connect(results);
-
-    http::request<http::string_body> req{http::verb::get, "/", 11};
-    req.set(http::field::host, "example.com");
-    req.set(http::field::user_agent, "Beast");
-    http::write(stream, req);
-
-    beast::flat_buffer buffer;
-    http::response<http::dynamic_body> res;
-    http::read(stream, buffer, res);
-    std::cout << res.base() << "\n"; // заголовки ответа
-
-    beast::error_code ec;
-    stream.socket().shutdown(tcp::socket::shutdown_both, ec);
-}
-```
-
-CMake:
-
-```cmake
-find_package(Boost REQUIRED COMPONENTS system)
-find_package(Threads REQUIRED)
-target_link_libraries(app PRIVATE Boost::system Threads::Threads)
-```
-
-**Ключевое:** структуры `request`/`response`, синхронный HTTP-клиент → асинхронный → простой HTTP-сервер → WebSocket. Самый практичный модуль для веб-задач.
-
----
----
----
----
-
-## Этап 7. Тестирование
-
-### 7.1 Boost.Test
-
-Фреймворк юнит-тестирования. **Требует линковки** (для unit_test_framework). Изучи раньше остальных по желанию — полезно писать тесты ко всем учебным примерам.
-
-```cpp
-#define BOOST_TEST_MODULE MyTests
-#include <boost/test/included/unit_test.hpp>
-
-int add(int a, int b) { return a + b; }
-
-BOOST_AUTO_TEST_CASE(addition_works) {
-    BOOST_CHECK_EQUAL(add(2, 3), 5);
-    BOOST_TEST(add(-1, 1) == 0);
-}
-
-BOOST_AUTO_TEST_CASE(edge_cases) {
-    BOOST_CHECK(add(0, 0) == 0);
-}
-```
-
-CMake (вариант со скомпилированной библиотекой):
-
-```cmake
-find_package(Boost REQUIRED COMPONENTS unit_test_framework)
-enable_testing()
-add_executable(tests test_main.cpp)
-target_link_libraries(tests PRIVATE Boost::unit_test_framework)
-add_test(NAME tests COMMAND tests)
-```
-
-Запуск: `ctest --test-dir build --output-on-failure`.
-
-**Ключевое:** `BOOST_CHECK` против `BOOST_REQUIRE`, `BOOST_TEST`, test suites, fixtures, интеграция с CTest. Совет: используй `<boost/test/included/...>` для header-only режима в маленьких проектах и линкуемую версию — в больших.
-
----
----
----
----
-
-## Этап 8. Интеграция с Python
-
-### 8.1 Boost.Python
-
-Связывание C++ и Python. **Требует линковки** и установленного Python. Самый зависимый от окружения модуль — оставь напоследок.
-
-```cpp
-// hello_ext.cpp
-#include <boost/python.hpp>
-
-char const* greet() { return "Привет из C++!"; }
-int square(int x) { return x * x; }
-
-BOOST_PYTHON_MODULE(hello_ext) {
-    using namespace boost::python;
-    def("greet", greet);
-    def("square", square);
-}
-```
-
-CMake (сборка как разделяемая библиотека-модуль):
-
-```cmake
-find_package(Boost REQUIRED COMPONENTS python)
-find_package(Python3 REQUIRED COMPONENTS Development)
-
-add_library(hello_ext MODULE hello_ext.cpp)
-target_link_libraries(hello_ext PRIVATE Boost::python Python3::Python)
-set_target_properties(hello_ext PROPERTIES PREFIX "" SUFFIX ".pyd") # Windows
-# На Linux: SUFFIX ".so"
-```
-
-Использование из Python:
-
-```python
-import hello_ext
-print(hello_ext.greet())
-print(hello_ext.square(7))
-```
-
-**Ключевое:** экспорт функций, классов (`class_<>`), конвертеры типов, управление GIL. Альтернатива — pybind11 (легче, header-only), стоит знать о ней.
-
----
-
