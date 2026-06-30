@@ -3,10 +3,10 @@
 
 BOOST_AUTO_TEST_SUITE(internal_tests)
 
-    BOOST_AUTO_TEST_CASE(is_valid_divisor) {
-    BOOST_TEST(calc::detail::is_valid_divisor(5));
-    BOOST_TEST(!calc::detail::is_valid_divisor(0));
-    BOOST_TEST(calc::detail::is_valid_divisor(-3));
+    BOOST_AUTO_TEST_CASE(is_valid_division) {
+    BOOST_TEST(calc::detail::is_valid_division(5));
+    BOOST_TEST(!calc::detail::is_valid_division(0));
+    BOOST_TEST(calc::detail::is_valid_division(-3));
 }
 
 BOOST_AUTO_TEST_CASE(normalize_boundaries) {

@@ -1,7 +1,6 @@
-#include "calculator_impl.hpp"
 module;
 
-#include "impl/calculator.hpp"
+#include "impl/calculator_impl.hpp"
 
 export module calculator;
 

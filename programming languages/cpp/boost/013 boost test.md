@@ -412,12 +412,15 @@ project/
 │   │   └── calculator_impl.cpp
 │   └── calculator.cppm          ← тонкая модуль-обёртка
 ├── tests/
+│   ├── smoke_main.cpp
+│   ├── smoke_module.cpp
 │   ├── test_main.cpp
 │   ├── test_calculator.cpp      ← тесты против impl (через #include)
 │   └── test_internal.cpp        ← тесты внутренних деталей
 ├── app/
 │   └── main.cpp                 ← приложение (через import)
 ├── vcpkg.json
+├── CMakePresets.json
 └── CMakeLists.txt
 ```
 
@@ -427,12 +430,53 @@ project/
 
 ### src/impl/calculator_impl.hpp
 ```cpp
-!!!
+#pragma once  
+  
+#include <stdexcept>  
+  
+namespace calc::detail {  
+    constexpr int MIN_VALUE{-100};  
+    constexpr int MAX_VALUE{100};  
+  
+    bool is_valid_division(int);  
+    int normalize(int);  
+}  
+  
+namespace calc {  
+    class Calculator {  
+    public:  
+        static int add(int, int);  
+        static int divide(int, int);  
+        static int normalized_add(int, int);  
+    };
+}
 ```
 
 ### src/impl/calculator_impl.cpp
 ```cpp
-!!!
+#include "calculator_impl.hpp"  
+  
+namespace calc::detail {  
+    bool is_valid_division(const int _division) { return _division != 0; }  
+  
+    int normalize(const int _value) {  
+        if (_value < MIN_VALUE) { return MIN_VALUE; }  
+        if (_value > MAX_VALUE) { return MAX_VALUE; }  
+        return _value;  
+    }}  
+  
+namespace calc {  
+    int Calculator::add(const int _a, const int _b) { return _a + _b; }  
+  
+    int Calculator::divide(const int _a, const int _b) {  
+        if (!detail::is_valid_division(_b)) {  
+            throw std::invalid_argument("division by zero");  
+        }        return _a / _b;  
+    }  
+    int Calculator::normalized_add(const int _a, const int _b) {  
+        return detail::normalize(_a + _b);  
+    }
+}
 ```
 
 ## 2. Модуль-обёртка (тонкий слой)
@@ -441,7 +485,15 @@ project/
 
 ### src/calculator.cppm
 ```cpp
-!!!
+module;  
+  
+#include "impl/calculator_impl.hpp"  
+  
+export module calculator;  
+  
+export namespace calc {  
+    using calc::Calculator;  
+}
 ```
 
 > Ключевой момент: модуль экспортирует `calc::Calculator` через `using`-объявление. Логики здесь нет — только проброс имени. Внутренние функции `detail::` остаются невидимыми для импортёров модуля, но доступны тестам напрямую через заголовок.
@@ -450,7 +502,30 @@ project/
 
 ### app/main.cpp
 ```cpp
-!!!
+/*  
+cmake --preset default  
+cmake --build .build  
+ctest --test-dir .build --output-on-failure  
+ctest --test-dir .build -R unit_tests  
+ctest --test-dir .build -R smoke_tests  
+ */  
+  
+import calculator;  
+  
+#include <iostream>  
+#include <format>  
+  
+int main() {  
+    const int A{2};  
+    const int B{3};  
+    const int C{42};  
+    const int D{6};  
+  
+    std::cout << std::format("{} + {} = {}", A, B, calc::Calculator::add(A, B));  
+    std::cout << std::format("{} / {} = {}", C, D, calc::Calculator::divide(A, B));  
+  
+    return 0;  
+}
 ```
 
 ## 4. Тесты против внутренней библиотеки (по-старому)
@@ -459,89 +534,190 @@ project/
 
 ### tests/test_main.cpp
 ```cpp
-!!!
+#define BOOST_TEST_MODULE ProjectTests  
+#include <boost/test/unit_test.hpp>
 ```
 
 ### tests/test_calculator.cpp
 ```cpp
-!!!
+#include <boost/test/unit_test.hpp>  
+  
+#include "../src/impl/calculator_impl.hpp"  
+  
+BOOST_AUTO_TEST_SUITE(public_api_tests)  
+  
+BOOST_AUTO_TEST_CASE(add_works) {  
+    BOOST_TEST(calc::Calculator::add(2, 3) == 5);  
+    BOOST_TEST(calc::Calculator::add(-5, 5) == 0);  
+}  
+  
+BOOST_AUTO_TEST_CASE(divide_works) {  
+    BOOST_TEST(calc::Calculator::divide(10, 2) == 5);  
+}  
+  
+BOOST_AUTO_TEST_CASE(divide_by_zero_throws) {  
+    BOOST_CHECK_THROW(calc::Calculator::divide(1, 0), std::invalid_argument);  
+}  
+  
+BOOST_AUTO_TEST_CASE(normalized_add_clamps) {  
+    BOOST_TEST(calc::Calculator::normalized_add(60, 60) == 100);  
+    BOOST_TEST(calc::Calculator::normalized_add(10, 60) == 70);  
+}  
+  
+BOOST_AUTO_TEST_SUITE_END()
 ```
 
 ### tests/test_internal.cpp
 ```cpp
-!!!
+#include <boost/test/unit_test.hpp>  
+#include "../src/impl/calculator_impl.hpp"  
+  
+BOOST_AUTO_TEST_SUITE(internal_tests)  
+  
+    BOOST_AUTO_TEST_CASE(is_valid_division) {  
+    BOOST_TEST(calc::detail::is_valid_division(5));  
+    BOOST_TEST(!calc::detail::is_valid_division(0));  
+    BOOST_TEST(calc::detail::is_valid_division(-3));  
+}  
+  
+BOOST_AUTO_TEST_CASE(normalize_boundaries) {  
+    BOOST_TEST(calc::detail::normalize(50) == 50);  
+    BOOST_TEST(calc::detail::normalize(150) == 100);  
+    BOOST_TEST(calc::detail::normalize(-150) == -100);  
+    BOOST_TEST(calc::detail::normalize(0) == 0);  
+}  
+  
+BOOST_AUTO_TEST_SUITE_END()
 ```
 
----
+### tests/smoke_module.cpp
 
+Добавлю отдельную тестовую цель, которая проверяет **именно модуль** — что `export` не сломан и публичный интерфейс доступен через `import`. Это закрывает последний пробел гибридного подхода: основные тесты проверяют логику через `#include`, а smoke-тест убеждается, что модульная обёртка корректно экспортирует API.
+
+Он импортирует модуль (а не включает заголовок) и делает несколько базовых вызовов:
+
+> Принцип: smoke-тест намеренно **минимален**. Он не дублирует проверку логики (это уже делают основные тесты), а только подтверждает, что модуль импортируется и публичные методы вызываются. Если `export` обёртки сломается, упадёт именно он.
 
 ```cpp
-
+#include <boost/test/unit_test.hpp>  
+  
+import calculator;  
+  
+BOOST_AUTO_TEST_SUITE(module_smoke)  
+  
+// Проверка: модуль импортируется и публичный класс доступен  
+BOOST_AUTO_TEST_CASE(module_exports_calculator) {  
+     BOOST_TEST(calc::Calculator::add(2, 3) == 5);  
+}  
+  
+// Проверка: публичные методы доступны через экспортированный интерфейс  
+BOOST_AUTO_TEST_CASE(module_public_methods_callable) {  
+    BOOST_TEST(calc::Calculator::divide(10, 2) == 5);  
+    BOOST_TEST(calc::Calculator::normalized_add(60, 60) == 100);  
+}  
+  
+// Проверка: исключения корректно проходят через границу модуля  
+BOOST_AUTO_TEST_CASE(module_exceptions_propagate) {  
+    calc::Calculator c;  
+    BOOST_CHECK_THROW(calc::Calculator::divide(1, 0), std::invalid_argument);  
+}  
+  
+BOOST_AUTO_TEST_SUITE_END()
 ```
 
----
+> Важно: здесь намеренно **нет** обращений к `calc::detail::...`. Если бы мы попытались вызвать внутреннюю функцию, код **не скомпилировался бы** — и это правильно: smoke-тест заодно подтверждает, что внутренние детали **не утекли** через `export`. Это негативная проверка инкапсуляции.
+
+### tests/smoke_main.cpp - отдельная точка входа для smoke-теста
+
+Поскольку smoke-тест собирается в **отдельный исполняемый файл** (модульную цель), ему нужна своя точка входа с `BOOST_TEST_MODULE`:
+
+```cpp
+#define BOOST_TEST_MODULE ModuleSmokeTests  
+#include <boost/test/unit_test.hpp>
+```
+
+> Напомню правило: `BOOST_TEST_MODULE` определяется ровно один раз на исполняемый файл. У основных тестов своя точка входа (`test_main.cpp`), у smoke-теста — своя (`smoke_main.cpp`), потому что это **два разных бинарника**.
 
 ## 5. CMake: три цели из одного кода
 
+### CMakePresets.json
+```json
+{  
+  "version": 3,  
+  "configurePresets": [  
+    {      "name": "default",  
+      "generator": "Ninja",  
+      "binaryDir": "${sourceDir}/.build",  
+      "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake"  
+    }  
+  ]
+}
+```
+
+### vcpkg.json
+```json
+{  
+    "name": "boost-learning-test",  
+    "version": "0.1.0",  
+    "dependencies": [  
+        "boost-test"  
+    ]  
+}
+```
+### CMakeLists.txt
 ```cmake
-cmake_minimum_required(VERSION 3.28)
-project(hybrid_modules LANGUAGES CXX)
-
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
-
-# ---------------------------------------------------------------
-# 1. Внутренняя библиотека реализации (обычные исходники)
-#    Её используют И модуль, И тесты.
-# ---------------------------------------------------------------
-add_library(calc_impl STATIC
-    src/impl/calculator_impl.cpp
-)
-target_include_directories(calc_impl PUBLIC src/impl)
-target_compile_features(calc_impl PUBLIC cxx_std_20)
-
-# ---------------------------------------------------------------
-# 2. Модуль-обёртка (тонкий export-слой над calc_impl)
-#    Линкуется с библиотекой реализации.
-# ---------------------------------------------------------------
-add_library(calc_module)
-target_sources(calc_module
-    PUBLIC
-        FILE_SET CXX_MODULES FILES
-            src/calculator.cppm
-)
-target_link_libraries(calc_module PUBLIC calc_impl)  # модуль тянет реализацию
-target_compile_features(calc_module PUBLIC cxx_std_20)
-
-# ---------------------------------------------------------------
-# 3. Приложение — использует МОДУЛЬ
-# ---------------------------------------------------------------
-add_executable(app app/main.cpp)
-target_link_libraries(app PRIVATE calc_module)       # через import
-
-# ---------------------------------------------------------------
-# 4. Тесты — используют БИБЛИОТЕКУ напрямую (без модуля!)
-# ---------------------------------------------------------------
-find_package(Boost REQUIRED COMPONENTS unit_test_framework)
-enable_testing()
-
-add_executable(unit_tests
-    tests/test_main.cpp
-    tests/test_calculator.cpp
-    tests/test_internal.cpp
-)
-target_link_libraries(unit_tests PRIVATE
-    calc_impl                       # ← линкуемся с реализацией, НЕ с модулем
-    Boost::unit_test_framework
-)
-
-add_test(NAME unit_tests COMMAND unit_tests)
+cmake_minimum_required(VERSION 3.28)  
+project(hybrid_modules LANGUAGES CXX)  
+  
+set(CMAKE_CXX_STANDARD 20)  
+set(CMAKE_CXX_STANDARD_REQUIRED ON)  
+set(CMAKE_CXX_EXTENSIONS OFF)  
+  
+# 1. Внутренняя библиотека реализации (вся логика)  
+add_library(calc_impl STATIC src/impl/calculator_impl.cpp)  
+target_include_directories(calc_impl PUBLIC src/impl)  
+target_compile_features(calc_impl PUBLIC cxx_std_20)  
+  
+# 2. Модуль-обёртка  
+add_library(calc_module)  
+target_sources(calc_module  
+        PUBLIC FILE_SET CXX_MODULES FILES src/calculator.cppm)  
+target_link_libraries(calc_module PUBLIC calc_impl)  
+target_compile_features(calc_module PUBLIC cxx_std_20)  
+  
+# 3. Приложение — через import  
+add_executable(app app/main.cpp)  
+target_link_libraries(app PRIVATE calc_module)  
+  
+# --- Тестирование ---  
+find_package(Boost REQUIRED COMPONENTS unit_test_framework)  
+enable_testing()  
+  
+# 4. Основные тесты — против реализации (#include, полный доступ)  
+add_executable(unit_tests  
+        tests/test_main.cpp        tests/test_calculator.cpp        tests/test_internal.cpp)  
+target_link_libraries(unit_tests PRIVATE calc_impl Boost::unit_test_framework)  
+add_test(NAME unit_tests COMMAND unit_tests)  
+  
+# 5. Smoke-тест — против модуля (import, проверка export)  
+add_executable(smoke_tests  
+        tests/smoke_main.cpp        tests/smoke_module.cpp)  
+target_link_libraries(smoke_tests PRIVATE calc_module Boost::unit_test_framework)  
+target_compile_features(smoke_tests PRIVATE cxx_std_20)  
+add_test(NAME smoke_tests COMMAND smoke_tests)
 ```
 
 Обрати внимание на главный приём: **`unit_tests` линкуется с `calc_impl`, а не с `calc_module`**. Тестовая сборка вообще не касается модулей — никаких `FILE_SET CXX_MODULES`, никаких BMI-проблем, никаких требований к согласованности модульных флагов. А приложение `app` использует уже модуль.
 
----
+Контраст с основными тестами:
+
+```cmake
+# основные тесты — против реализации (полный доступ, без модулей)
+target_link_libraries(unit_tests PRIVATE calc_impl Boost::unit_test_framework)
+
+# smoke-тест — против модуля (проверка export, через import)
+target_link_libraries(smoke_tests PRIVATE calc_module Boost::unit_test_framework)
+```
 
 ## Почему это снимает подводные камни
 
@@ -555,247 +731,7 @@ add_test(NAME unit_tests COMMAND unit_tests)
 
 При этом **продакшен-код (приложение) полноценно использует модули** — современный интерфейс, изоляция, потенциальный выигрыш в компиляции на стороне потребителей модуля.
 
----
-
 ## Поток зависимостей (наглядно)
-
-```
-                  calc_impl (обычная библиотека, вся логика)
-                  /                          \
-                 /                            \
-        calc_module                       unit_tests
-       (export-обёртка)                  (#include impl)
-            |                                  |
-           app                              ctest
-       (import calculator)            (доступ к detail::)
-```
-
-Одна реализация — два потребителя: модуль (для приложения) и прямой include (для тестов).
-
----
-
-## Когда этот подход оправдан
-
-|Ситуация|Гибрид подходит?|
-|---|---|
-|Внедряешь модули, но тулчейн ещё капризничает|Да — изолирует риск в одной цели|
-|Нужно тестировать внутренние детали реализации|Да — `import` этого не даёт|
-|Хочешь современный модульный интерфейс наружу|Да — `app` использует `import`|
-|Проект уже уверенно и полностью на модулях|Нет — тогда тестируй через `import` напрямую|
-|Логика тривиальна, внутренних деталей нет|Возможно избыточно — проще без обёртки|
-
----
-
-## Компромиссы, о которых стоит знать
-
-- **Дублирование границы API:** публичный класс упоминается дважды — в заголовке и в `export`-обёртке. Это цена развязки; зато обёртка тонкая и меняется редко.
-- **Тесты не проверяют сам модуль.** Они проверяют логику (`calc_impl`), но не то, что модуль корректно её экспортирует. Это можно закрыть одним отдельным smoke-тестом, который всё же `import`-ит модуль и дёргает публичный метод — чтобы убедиться, что `export` не сломан. Такой тест собирается отдельной модульной целью.
-- **Архитектурная дисциплина:** подход подталкивает держать логику в `impl`, а модуль — тонким. Это в целом здоровая структура, но требует осознанности.
-
----
-
-## Итог
-
-Гибридный подход разделяет две заботы: **модуль — это интерфейс наружу**, **библиотека — это тестируемая реализация**. Тесты работают с библиотекой по проверенной схеме `#include` + Boost.Test (с полным доступом к внутренностям и без модульных граблей), а приложение пользуется модулем. Так ты получаешь современный модульный фасад, не платя за это болью в тестовой инфраструктуре, пока экосистема модулей дозревает.
-
-Хочешь, добавлю тот самый отдельный smoke-тест, который проверяет именно модуль через `import` (как отдельную CMake-цель), чтобы закрыть последний пробел — или вернёмся к завершению плана и разберём `boost::python`?
-
----
-
-# Smoke-тест модуля через `import`
-
-Добавлю отдельную тестовую цель, которая проверяет **именно модуль** — что `export` не сломан и публичный интерфейс доступен через `import`. Это закрывает последний пробел гибридного подхода: основные тесты проверяют логику через `#include`, а smoke-тест убеждается, что модульная обёртка корректно экспортирует API.
-
-> Принцип: smoke-тест намеренно **минимален**. Он не дублирует проверку логики (это уже делают основные тесты), а только подтверждает, что модуль импортируется и публичные методы вызываются. Если `export` обёртки сломается, упадёт именно он.
-
----
-
-## 1. Сам smoke-тест
-
-Он импортирует модуль (а не включает заголовок) и делает несколько базовых вызовов:
-
-```cpp
-// tests/smoke_module.cpp
-#include <boost/test/unit_test.hpp>
-import calculator;                   // ← проверяем именно МОДУЛЬ, через import
-
-// Этот файл — отдельная единица трансляции, собираемая в модульную цель.
-// Он НЕ включает calculator_impl.hpp: доступ только к тому, что экспортировано.
-
-BOOST_AUTO_TEST_SUITE(module_smoke)
-
-    // Проверка: модуль импортируется и публичный класс доступен
-    BOOST_AUTO_TEST_CASE(module_exports_calculator) {
-        calc::Calculator c;          // тип виден → export работает
-        BOOST_TEST(c.add(2, 3) == 5);
-    }
-
-    // Проверка: публичные методы доступны через экспортированный интерфейс
-    BOOST_AUTO_TEST_CASE(module_public_methods_callable) {
-        calc::Calculator c;
-        BOOST_TEST(c.divide(10, 2) == 5);
-        BOOST_TEST(c.normalized_add(60, 60) == 100);
-    }
-
-    // Проверка: исключения корректно проходят через границу модуля
-    BOOST_AUTO_TEST_CASE(module_exceptions_propagate) {
-        calc::Calculator c;
-        BOOST_CHECK_THROW(c.divide(1, 0), std::invalid_argument);
-    }
-
-BOOST_AUTO_TEST_SUITE_END()
-```
-
-> Важно: здесь намеренно **нет** обращений к `calc::detail::...`. Если бы мы попытались вызвать внутреннюю функцию, код **не скомпилировался бы** — и это правильно: smoke-тест заодно подтверждает, что внутренние детали **не утекли** через `export`. Это негативная проверка инкапсуляции.
-
----
-
-## 2. Отдельная точка входа для smoke-теста
-
-Поскольку smoke-тест собирается в **отдельный исполняемый файл** (модульную цель), ему нужна своя точка входа с `BOOST_TEST_MODULE`:
-
-```cpp
-// tests/smoke_main.cpp
-#define BOOST_TEST_MODULE ModuleSmokeTests
-#include <boost/test/included/unit_test.hpp>
-```
-
-> Напомню правило: `BOOST_TEST_MODULE` определяется ровно один раз на исполняемый файл. У основных тестов своя точка входа (`test_main.cpp`), у smoke-теста — своя (`smoke_main.cpp`), потому что это **два разных бинарника**.
-
----
-
-## 3. CMake: добавляем модульную тестовую цель
-
-К предыдущему `CMakeLists.txt` добавляется ещё одна цель — она линкуется с **модулем** (`calc_module`), а не с библиотекой реализации:
-
-```cmake
-# ---------------------------------------------------------------
-# 5. SMOKE-ТЕСТ модуля — использует МОДУЛЬ через import
-#    Отдельный бинарник: проверяет, что export не сломан.
-# ---------------------------------------------------------------
-add_executable(smoke_tests
-    tests/smoke_main.cpp
-    tests/smoke_module.cpp
-)
-target_link_libraries(smoke_tests PRIVATE
-    calc_module                     # ← линкуемся с МОДУЛЕМ (не с calc_impl!)
-    Boost::unit_test_framework
-)
-target_compile_features(smoke_tests PRIVATE cxx_std_20)
-
-add_test(NAME smoke_tests COMMAND smoke_tests)
-```
-
-Контраст с основными тестами:
-
-```cmake
-# основные тесты — против реализации (полный доступ, без модулей)
-target_link_libraries(unit_tests PRIVATE calc_impl Boost::unit_test_framework)
-
-# smoke-тест — против модуля (проверка export, через import)
-target_link_libraries(smoke_tests PRIVATE calc_module Boost::unit_test_framework)
-```
-
----
-
-## 4. Полный CMakeLists.txt (с обеими тестовыми целями)
-
-```cmake
-cmake_minimum_required(VERSION 3.28)
-project(hybrid_modules LANGUAGES CXX)
-
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
-
-# 1. Внутренняя библиотека реализации (вся логика)
-add_library(calc_impl STATIC src/impl/calculator_impl.cpp)
-target_include_directories(calc_impl PUBLIC src/impl)
-target_compile_features(calc_impl PUBLIC cxx_std_20)
-
-# 2. Модуль-обёртка
-add_library(calc_module)
-target_sources(calc_module
-    PUBLIC FILE_SET CXX_MODULES FILES src/calculator.cppm)
-target_link_libraries(calc_module PUBLIC calc_impl)
-target_compile_features(calc_module PUBLIC cxx_std_20)
-
-# 3. Приложение — через import
-add_executable(app app/main.cpp)
-target_link_libraries(app PRIVATE calc_module)
-
-# --- Тестирование ---
-find_package(Boost REQUIRED COMPONENTS unit_test_framework)
-enable_testing()
-
-# 4. Основные тесты — против реализации (#include, полный доступ)
-add_executable(unit_tests
-    tests/test_main.cpp
-    tests/test_calculator.cpp
-    tests/test_internal.cpp
-)
-target_link_libraries(unit_tests PRIVATE calc_impl Boost::unit_test_framework)
-add_test(NAME unit_tests COMMAND unit_tests)
-
-# 5. Smoke-тест — против модуля (import, проверка export)
-add_executable(smoke_tests
-    tests/smoke_main.cpp
-    tests/smoke_module.cpp
-)
-target_link_libraries(smoke_tests PRIVATE calc_module Boost::unit_test_framework)
-target_compile_features(smoke_tests PRIVATE cxx_std_20)
-add_test(NAME smoke_tests COMMAND smoke_tests)
-```
-
----
-
-## 5. Запуск обоих наборов
-
-```bash
-cmake -B build -S . -G Ninja \
-    -DCMAKE_TOOLCHAIN_FILE=[vcpkg]/scripts/buildsystems/vcpkg.cmake
-cmake --build build
-
-# оба набора через CTest
-ctest --test-dir build --output-on-failure
-```
-
-Вывод покажет две отдельные цели:
-
-```
-Test project /path/build
-    Start 1: unit_tests
-1/2 Test #1: unit_tests .......................   Passed
-    Start 2: smoke_tests
-2/2 Test #2: smoke_tests ......................   Passed
-
-100% tests passed, 2 tests failed out of 2
-```
-
-Запуск по отдельности:
-
-```bash
-ctest --test-dir build -R unit_tests    # только логика
-ctest --test-dir build -R smoke_tests   # только проверка модуля
-```
-
----
-
-## Что именно ловит smoke-тест
-
-|Сценарий поломки|Поймает ли smoke-тест|
-|---|---|
-|Забыли `export` у `Calculator` в обёртке|**Да** — не скомпилируется (тип не виден)|
-|Опечатка в имени модуля (`export module calc;` vs `import calculator;`)|**Да** — ошибка импорта|
-|Внутренняя деталь случайно попала в `export`|Косвенно — структурно тест на это можно расширить|
-|Сломалась логика `add`/`divide`|Да, но это уже ловят основные тесты — здесь дублируется минимально|
-|Проблема сборки самого модуля (BMI, флаги)|**Да** — цель не соберётся|
-
-Главная ценность: основные тесты проверяют **что код делает**, а smoke-тест — **что модуль корректно отдаёт этот код наружу**. Без него можно сломать `export` и не заметить, потому что основные тесты ходят в обход модуля.
-
----
-
-## Обновлённая картина проекта
 
 ```
             calc_impl (вся логика)
@@ -809,69 +745,40 @@ ctest --test-dir build -R smoke_tests   # только проверка моду
 (import)  (import, проверка export)
 ```
 
-Теперь покрытие полное: логика проверена напрямую (`unit_tests`), а модульный фасад — отдельно (`smoke_tests`). Тестовая инфраструктура логики свободна от модульных граблей, но при этом модуль не остаётся непроверенным.
+Одна реализация — два потребителя: модуль (для приложения) и прямой include (для тестов).
 
----
+## Когда этот подход оправдан
+
+|Ситуация|Гибрид подходит?|
+|---|---|
+|Внедряешь модули, но тулчейн ещё капризничает|Да — изолирует риск в одной цели|
+|Нужно тестировать внутренние детали реализации|Да — `import` этого не даёт|
+|Хочешь современный модульный интерфейс наружу|Да — `app` использует `import`|
+|Проект уже уверенно и полностью на модулях|Нет — тогда тестируй через `import` напрямую|
+|Логика тривиальна, внутренних деталей нет|Возможно избыточно — проще без обёртки|
+
+## Что именно ловит smoke-тест
+
+|Сценарий поломки|Поймает ли smoke-тест|
+|---|---|
+|Забыли `export` у `Calculator` в обёртке|**Да** — не скомпилируется (тип не виден)|
+|Опечатка в имени модуля (`export module calc;` vs `import calculator;`)|**Да** — ошибка импорта|
+|Внутренняя деталь случайно попала в `export`|Косвенно — структурно тест на это можно расширить|
+|Сломалась логика `add`/`divide`|Да, но это уже ловят основные тесты — здесь дублируется минимально|
+|Проблема сборки самого модуля (BMI, флаги)|**Да** — цель не соберётся|
+
+Главная ценность: основные тесты проверяют **что код делает**, а smoke-тест — **что модуль корректно отдаёт этот код наружу**. Без него можно сломать `export` и не заметить, потому что основные тесты ходят в обход модуля.
 
 ## Практический совет по smoke-тестам модулей
 
 Держи их **тонкими и быстрыми**: пара вызовов на каждый экспортированный тип, проверка, что импорт вообще работает. Не переноси сюда проверку бизнес-логики — это размывает разделение и заставляет тестовую сборку модуля расти (со всеми её капризами). Smoke-тест отвечает на один вопрос: «модуль собирается и экспортирует то, что должен?» — и этого достаточно.
 
-Это завершает тему тестирования модулей. Остался последний пункт твоего исходного плана — `boost::python`. Переходим к нему?
+## Компромиссы, о которых стоит знать
 
----
----
----
----
----
----
----
----
----
----
----
+- **Дублирование границы API:** публичный класс упоминается дважды — в заголовке и в `export`-обёртке. Это цена развязки; зато обёртка тонкая и меняется редко.
+- **Тесты не проверяют сам модуль.** Они проверяют логику (`calc_impl`), но не то, что модуль корректно её экспортирует. Это можно закрыть одним отдельным smoke-тестом, который всё же `import`-ит модуль и дёргает публичный метод — чтобы убедиться, что `export` не сломан. Такой тест собирается отдельной модульной целью.
+- **Архитектурная дисциплина:** подход подталкивает держать логику в `impl`, а модуль — тонким. Это в целом здоровая структура, но требует осознанности.
 
-## Этап 8. Интеграция с Python
+## Итог
 
-### 8.1 Boost.Python
-
-Связывание C++ и Python. **Требует линковки** и установленного Python. Самый зависимый от окружения модуль — оставь напоследок.
-
-```cpp
-// hello_ext.cpp
-#include <boost/python.hpp>
-
-char const* greet() { return "Привет из C++!"; }
-int square(int x) { return x * x; }
-
-BOOST_PYTHON_MODULE(hello_ext) {
-    using namespace boost::python;
-    def("greet", greet);
-    def("square", square);
-}
-```
-
-CMake (сборка как разделяемая библиотека-модуль):
-
-```cmake
-find_package(Boost REQUIRED COMPONENTS python)
-find_package(Python3 REQUIRED COMPONENTS Development)
-
-add_library(hello_ext MODULE hello_ext.cpp)
-target_link_libraries(hello_ext PRIVATE Boost::python Python3::Python)
-set_target_properties(hello_ext PROPERTIES PREFIX "" SUFFIX ".pyd") # Windows
-# На Linux: SUFFIX ".so"
-```
-
-Использование из Python:
-
-```python
-import hello_ext
-print(hello_ext.greet())
-print(hello_ext.square(7))
-```
-
-**Ключевое:** экспорт функций, классов (`class_<>`), конвертеры типов, управление GIL. Альтернатива — pybind11 (легче, header-only), стоит знать о ней.
-
----
-
+Гибридный подход разделяет две заботы: **модуль — это интерфейс наружу**, **библиотека — это тестируемая реализация**. Тесты работают с библиотекой по проверенной схеме `#include` + Boost.Test (с полным доступом к внутренностям и без модульных граблей), а приложение пользуется модулем. Так ты получаешь современный модульный фасад, не платя за это болью в тестовой инфраструктуре, пока экосистема модулей дозревает.

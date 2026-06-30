@@ -1,3 +1,11 @@
+/*
+cmake --preset default
+cmake --build .build
+ctest --test-dir .build --output-on-failure
+ctest --test-dir .build -R unit_tests
+ctest --test-dir .build -R smoke_tests
+ */
+
 
 import calculator;
 

@@ -3,6 +3,7 @@
 build/
 .venv/
 
+*.pyc
 *.txt
 *.json
 *.exe

@@ -14,12 +14,12 @@ BOOST_AUTO_TEST_CASE(divide_works) {
 }
 
 BOOST_AUTO_TEST_CASE(divide_by_zero_throws) {
-    BOOST_CHECK_THROW(calc::Calculator:divide(1, 0), std::invalid_argument);
+    BOOST_CHECK_THROW(calc::Calculator::divide(1, 0), std::invalid_argument);
 }
 
 BOOST_AUTO_TEST_CASE(normalized_add_clamps) {
-    BOOST_TEST(calc::Calculator::normalized_add((60, 60)) == 100);
-    BOOST_TEST(calc::Calculator::normalized_add((10, 60)) == 70);
+    BOOST_TEST(calc::Calculator::normalized_add(60, 60) == 100);
+    BOOST_TEST(calc::Calculator::normalized_add(10, 60) == 70);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
