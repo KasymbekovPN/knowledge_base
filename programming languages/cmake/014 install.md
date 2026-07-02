@@ -102,84 +102,6 @@ install(DIRECTORY include/
 
 Эти переменные подстраиваются под платформу и дистрибутив автоматически. Использовать `GNUInstallDirs` — рекомендуемая практика для любого проекта, который планируется устанавливать.
 
-## Полный пример
-
-Структура:
-
-```
-mylib/
-├── CMakeLists.txt
-├── include/
-│   └── mylib/
-│       └── greeter.hpp
-└── src/
-    └── greeter.cpp
-```
-
-`include/mylib/greeter.hpp`:
-
-```cpp
-#pragma once
-#include <string>
-std::string greet(const std::string& name);
-```
-
-`src/greeter.cpp`:
-
-```cpp
-#include "mylib/greeter.hpp"
-std::string greet(const std::string& name) {
-    return "Привет, " + name + "!";
-}
-```
-
-`CMakeLists.txt`:
-
-```cmake
-cmake_minimum_required(VERSION 3.16)
-project(MyLib VERSION 1.0.0 LANGUAGES CXX)
-
-include(GNUInstallDirs)
-
-add_library(greeter STATIC src/greeter.cpp)
-target_include_directories(greeter PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
-)
-target_compile_features(greeter PUBLIC cxx_std_17)
-
-# Установка цели
-install(TARGETS greeter
-    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-)
-
-# Установка заголовков
-install(DIRECTORY include/
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-)
-```
-
-Сборка и установка в локальный каталог:
-
-```
-cmake -B build -DCMAKE_INSTALL_PREFIX=${PWD}/install
-cmake --build build
-cmake --install build
-```
-
-Результат в `install/`:
-
-```
-install/
-├── include/
-│   └── mylib/
-│       └── greeter.hpp
-└── lib/
-    └── libgreeter.a
-```
-
 ## Роль `$<INSTALL_INTERFACE>` в путях к заголовкам
 
 Обрати внимание на генераторное выражение в `target_include_directories`:
@@ -242,25 +164,79 @@ DESTDIR=/tmp/staging cmake --install build
 
 **Следующий логичный шаг** — экспорт целей: научить установленную библиотеку генерировать `MyLibConfig.cmake`, чтобы другие проекты подключали её одной строкой `find_package(MyLib)` с автоматическим получением всех путей и требований, ровно как ты подключаешь fmt или spdlog. Это превращает твою библиотеку в полноценный переиспользуемый пакет и логически завершает тему установки.
 
----
-----
----
----
+## Полный пример
 
+Структура:
 
-**5. Структура проектов (2-3 дня)**
+```
+mylib/
+├── CMakeLists.txt
+├── include/
+│   └── mylib/
+│       └── greeter.hpp
+└── src/
+    └── greeter.cpp
+```
 
-- Экспорт целей и генерация config-файлов для своей библиотеки
+### include/mylib/greeter.hpp
+```cpp
+#pragma once  
+#include <string>  
+  
+std::string greet(std::string&);
+```
 
-**6. Тестирование и инструменты (2-3 дня)**
+### src/greeter.cpp
+```cpp
+#include "mylib/greeter.hpp"  
+  
+#include <format>  
+  
+std::string greet(const std::string& name) {  
+    return std::format("Hello, {}!", name);  
+}
+```
 
-- CTest, `enable_testing`, `add_test`
-- Интеграция GoogleTest/Catch2
-- `CMakePresets.json` (пресеты конфигурации)
+### CMakeLists.txt
+```cmake
+cmake_minimum_required(VERSION 4.0.0)  
+project(MyLib VERSION 1.0.0 LANGUAGES CXX)  
+  
+include(GNUInstallDirs)  
+  
+add_library(greeter STATIC src/greeter.cpp)  
+target_include_directories(greeter PUBLIC  
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>  
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>  
+)  
+target_compile_features(greeter PUBLIC cxx_std_20)  
+  
+# Установка цели  
+install(TARGETS greeter  
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}  
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}  
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}  
+)  
+  
+# Установка заголовков  
+install(DIRECTORY include/  
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}  
+)
+```
 
-**7. Продвинутые темы (по необходимости)**
+```cmake
+cmake -B .build -DCMAKE_INSTALL_PREFIX=$(pwd)\install
+cmake --build .build
+cmake --install .build
+```
 
-- Собственные функции/макросы, модули в `cmake/`
-- Кросс-компиляция, toolchain-файлы
-- CPack для упаковки
-- Кастомные команды и цели (`add_custom_command/target`)
+Результат в `install/`:
+
+```
+install/
+├── include/
+│   └── mylib/
+│       └── greeter.hpp
+└── lib/
+    └── libgreeter.a
+```

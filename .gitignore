@@ -3,6 +3,7 @@
 build/
 .venv/
 .build-*/
+install
 
 *.pyc
 *.txt
