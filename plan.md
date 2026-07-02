@@ -1,6 +1,5 @@
 
-vcpkg
-boost
 debug
+clangd
 cmake
 docker

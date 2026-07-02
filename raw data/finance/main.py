@@ -1,4 +1,5 @@
 import os
+import re
 import configparser
 import pdfplumber
 
@@ -17,6 +18,8 @@ INNER_KEY_LINES = 'lines'
 INNER_KEY_HANDLER = 'handler'
 
 PARAM_PDF_NAMES = 'pdf_names'
+
+SPATTERN = pattern = r'(\d{2}\.\d{2}\.\d{4} \d{2}:\d{2})\s+(.+?)\s+([+-]?\d[\d ]*,\d{2})\s+(\d[\d ]*,\d{2})$'
 
 def get_config():
     main_config = configparser.ConfigParser()
@@ -83,10 +86,29 @@ def define_pdf_handler(config, params, result):
     result[INNER_KEY_HANDLER] = handlers
 
 def handle_pdf_sources_as_s(path, config, params, result):
-    print('handle_pdf_sources_as_s')
+    # print('handle_pdf_sources_as_s ', path)
+    # print('handle_pdf_sources_as_s ', result[INNER_KEY_LINES][path])
+    for line in result[INNER_KEY_LINES][path]:
+        m = re.match(SPATTERN, line)
+        if m == None:
+            continue
+        date, operation, amount, balance = m.groups()
+
+        pure_amount = amount.strip()
+        if operation.strip() == "Перевод СБП" and pure_amount == "50 000,00":
+            continue
+        if pure_amount[0] == '+':
+            continue
+
+        pure_op = operation.strip()
+        pure_date = date.strip().replace('.', '-')
+        print('data: /', pure_date, '/, op: /', operation, '/, amount: /', pure_amount)
+
 
 def handle_pdf_sources_as_t(path, config, params, result):
-    print('handle_pdf_sources_as_t')
+    # print('handle_pdf_sources_as_t ', path)
+    # print('handle_pdf_sources_as_t ', result[INNER_KEY_LINES][path])
+    pass
 
 if __name__ == '__main__':
     config = get_config()
