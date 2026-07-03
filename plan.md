@@ -1,5 +1,4 @@
 
+docker
 debug
 clangd
-cmake
-docker

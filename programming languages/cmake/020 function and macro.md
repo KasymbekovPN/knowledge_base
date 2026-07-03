@@ -9,23 +9,33 @@ tags:
 
 Когда в проекте много целей с одинаковыми настройками (флаги предупреждений, стандарт, свойства установки), копирование одних и тех же строк в каждый `CMakeLists.txt` становится проблемой: правку приходится вносить в десяти местах, легко забыть одно. Собственные функции инкапсулируют повторяющуюся логику в одном месте.
 
----
-
 ## `function` и `macro`: базовый синтаксис
 
 CMake даёт два способа определить свою команду — `function` и `macro`. Синтаксис похож:
 
 ```cmake
-function(my_function arg1 arg2)
-    message(STATUS "аргументы: ${arg1}, ${arg2}")
-endfunction()
-
-macro(my_macro arg1 arg2)
-    message(STATUS "аргументы: ${arg1}, ${arg2}")
-endmacro()
-
-my_function(hello world)
+cmake_minimum_required(VERSION 4.0.0)  
+project(proj LANGUAGES CXX)  
+  
+function(my_func arg0 arg1)  
+    message(STATUS "F ARGS: ${arg0} ${arg1}")  
+endfunction()  
+  
+macro(my_macro arg0 arg1)  
+    message(STATUS "M ARGS: ${arg0} ${arg1}")  
+endmacro()  
+  
+my_func(hello world)  
 my_macro(hello world)
+```
+
+```
+-- Selecting Windows SDK version 10.0.26100.0 to target Windows 10.0.26200.
+-- F ARGS: hello world
+-- M ARGS: hello world
+-- Configuring done (0.0s)
+-- Generating done (0.0s)
+-- Build files have been written to: C:/projects/knowledge_base/programming languages/cmake/code/020 customs/000 simple demo/build
 ```
 
 Оба вызываются одинаково, но между ними есть **принципиальное различие**, которое определяет, что выбрать.
@@ -39,19 +49,38 @@ my_macro(hello world)
 Наглядно:
 
 ```cmake
-function(set_in_function)
-    set(RESULT "из функции")           # локальна, наружу не видна
-endfunction()
+cmake_minimum_required(VERSION 4.0.0)  
+project(proj LANGUAGES CXX)  
+  
+function(set_in_func)  
+    set(RESULT "from-function")  
+endfunction()  
+  
+macro(set_in_macro)  
+    set(RESULT "from-macro")  
+endmacro()  
+  
+set_in_func()  
+message(STATUS "after function calling [${RESULT}]")  
+  
+set_in_macro()  
+message(STATUS "after macro calling [${RESULT}]")
+```
 
-macro(set_in_macro)
-    set(RESULT "из макроса")           # меняет переменную вызывающего
-endmacro()
-
-set_in_function()
-message(STATUS "после функции: ${RESULT}")   # пусто
-
-set_in_macro()
-message(STATUS "после макроса: ${RESULT}")   # из макроса
+```
+-- Building for: Visual Studio 18 2026
+-- Selecting Windows SDK version 10.0.26100.0 to target Windows 10.0.26200.
+-- The CXX compiler identification is MSVC 19.51.36247.0
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/cl.exe - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- after function calling []
+-- after macro calling [from-macro]
+-- Configuring done (2.3s)
+-- Generating done (0.0s)
+-- Build files have been written to: C:/projects/knowledge_base/programming languages/cmake/code/020 customs/001 func macro diff/.build
 ```
 
 **Практическое правило:** по умолчанию используй `function` — изоляция области видимости предотвращает случайную порчу переменных вызывающего кода. `macro` бери только когда сознательно нужно менять переменные снаружи или когда `return()` должен возвращать из вызывающего контекста. Неожиданные баги от «протекающих» переменных — самая частая причина боли с макросами.
@@ -61,13 +90,32 @@ message(STATUS "после макроса: ${RESULT}")   # из макроса
 Поскольку функция изолирована, значение возвращают через `PARENT_SCOPE`:
 
 ```cmake
-function(add_numbers a b out_var)
-    math(EXPR result "${a} + ${b}")
-    set(${out_var} ${result} PARENT_SCOPE)   # записываем в переменную вызывающего
-endfunction()
+cmake_minimum_required(VERSION 4.0.0)  
+project(proj LANGUAGES CXX)  
+  
+function(add_numbers a b out_var)  
+    math(EXPR result "${a} + ${b}")  
+    # записываем в переменную вызывающего  
+    set(${out_var} ${result} PARENT_SCOPE)  
+endfunction()  
+  
+add_numbers(2 3 sum)  
+message(STATUS "sum: ${sum}")
+```
 
-add_numbers(2 3 sum)
-message(STATUS "сумма: ${sum}")   # сумма: 5
+```
+-- Building for: Visual Studio 18 2026
+-- Selecting Windows SDK version 10.0.26100.0 to target Windows 10.0.26200.
+-- The CXX compiler identification is MSVC 19.51.36247.0
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/cl.exe - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- sum: 5
+-- Configuring done (1.5s)
+-- Generating done (0.0s)
+-- Build files have been written to: C:/projects/knowledge_base/programming languages/cmake/code/020 customs/002 func and parent_scope/.build
 ```
 
 Приём с `out_var` — распространённый паттерн: имя выходной переменной передаётся аргументом, а функция пишет результат в `${out_var}` с `PARENT_SCOPE`. Так работают многие встроенные команды CMake.
@@ -77,39 +125,91 @@ message(STATUS "сумма: ${sum}")   # сумма: 5
 Функции могут принимать переменное число аргументов. Всё, что передано сверх именованных параметров, доступно в списке `ARGN`:
 
 ```cmake
-function(print_all first)
-    message(STATUS "первый: ${first}")
-    foreach(item IN LISTS ARGN)           # остальные аргументы
-        message(STATUS "  ещё: ${item}")
-    endforeach()
-endfunction()
+cmake_minimum_required(VERSION 4.0.0)  
+project(proj LANGUAGES CXX)  
+  
+function(print_all first)  
+    message(STATUS "first: ${first}")  
+    foreach (item IN LISTS ARGN)  
+        message(STATUS " and ${item}")  
+    endforeach ()  
+endfunction()  
+  
+print_all(a b c d f)
+```
 
-print_all(a b c d)
+```
+-- Building for: Visual Studio 18 2026
+-- Selecting Windows SDK version 10.0.26100.0 to target Windows 10.0.26200.
+-- The CXX compiler identification is MSVC 19.51.36247.0
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/cl.exe - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- first: a
+--  and b
+--  and c
+--  and d
+--  and f
+-- Configuring done (1.4s)
+-- Generating done (0.0s)
+-- Build files have been written to: C:/projects/knowledge_base/programming languages/cmake/code/020 customs/003 argn/.build
 ```
 
 Но для серьёзных функций используют `cmake_parse_arguments` — он разбирает именованные аргументы (в стиле самих команд CMake, вроде `PUBLIC`/`PRIVATE`/`DESTINATION`). Это то, что делает свою функцию похожей на встроенную:
 
 ```cmake
-function(add_my_library)
-    set(options STATIC SHARED)                    # флаги (есть/нет)
-    set(oneValueArgs NAME)                        # аргументы с одним значением
-    set(multiValueArgs SOURCES DEPS)              # аргументы со списком значений
-    cmake_parse_arguments(ARG
-        "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
-
-    # Теперь доступны ARG_NAME, ARG_SOURCES, ARG_DEPS, ARG_STATIC, ARG_SHARED
-    add_library(${ARG_NAME} ${ARG_SOURCES})
-    if(ARG_DEPS)
-        target_link_libraries(${ARG_NAME} PRIVATE ${ARG_DEPS})
-    endif()
-endfunction()
-
-# Вызов в стиле встроенных команд CMake:
-add_my_library(
-    NAME mylib
-    SOURCES src/a.cpp src/b.cpp
-    DEPS fmt::fmt
+cmake_minimum_required(VERSION 4.0.0)  
+project(proj LANGUAGES CXX)  
+  
+function(add_my_library)  
+    # флаги (есть/нет)  
+    set(options STATIC SHARED)  
+    # аргументы с одним значением  
+    set(oneValueArgs NAME)  
+    # аргументы со списком значений  
+    set(multiValueArgs SOURCES DEPS)  
+    cmake_parse_arguments(  
+            ARG  
+            "${options}"  
+            "${oneValueArgs}"  
+            "${multiValueArgs}"  
+            ${ARGN}  
+    )  
+  
+    message(STATUS "ARG_NAME: ${ARG_NAME}")  
+    message(STATUS "ARG_SOURCES: ${ARG_SOURCES}")  
+    message(STATUS "ARG_DEPS: ${ARG_DEPS}")  
+    message(STATUS "ARG_STATIC: ${ARG_STATIC}")  
+    message(STATUS "ARG_SHARED: ${ARG_SHARED}")  
+endfunction()  
+  
+# Вызов в стиле встроенных команд CMake:  
+add_my_library(  
+        NAME mylib  
+        SOURCES src/a.cpp src/b.cpp
+        DEPS fmt::fmt
 )
+```
+
+```
+-- Building for: Visual Studio 18 2026
+-- Selecting Windows SDK version 10.0.26100.0 to target Windows 10.0.26200.
+-- The CXX compiler identification is MSVC 19.51.36247.0
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: C:/Program Files/Microsoft Visual Studio/18/Community/VC/Tools/MSVC/14.51.36231/bin/Hostx64/x64/cl.exe - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- ARG_NAME: mylib
+-- ARG_SOURCES: src/a.cpp;src/b.cpp
+-- ARG_DEPS: fmt::fmt
+-- ARG_STATIC: FALSE
+-- ARG_SHARED: FALSE
+-- Configuring done (1.6s)
+-- Generating done (0.0s)
+-- Build files have been written to: C:/projects/knowledge_base/programming languages/cmake/code/020 function and macro/004 cmake_parse_arguments/.build
 ```
 
 Разберём аргументы `cmake_parse_arguments`: первый (`ARG`) — префикс для результирующих переменных; затем три списка — опции-флаги, одиночные значения, множественные значения; в конце `${ARGN}` — то, что реально передали. После вызова каждый именованный аргумент доступен как `ARG_<ИМЯ>`. Это стандартный способ писать выразительные, самодокументируемые функции.
@@ -239,15 +339,3 @@ endif()
 Проверяй обязательные аргументы через `if(NOT ARG_...)` и `FATAL_ERROR` — понятная ошибка лучше загадочного сбоя дальше по коду.
 
 **Следующий логичный шаг** плана — кросс-компиляция через toolchain-файлы: как собирать под другую платформу (ARM, embedded, Android), задавая компилятор и окружение целевой системы. Это опирается на понимание переменных и кэша, которое у тебя уже есть, и естественно расширяет тему конфигурации сборки.
-
-----
----
----
----
-
-
-**7. Продвинутые темы (по необходимости)**
-
-- Кросс-компиляция, toolchain-файлы
-- CPack для упаковки
-- Кастомные команды и цели (`add_custom_command/target`)
