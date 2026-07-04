@@ -1,0 +1,18 @@
+<svg viewBox="0 0 680 220" xmlns="http://www.w3.org/2000/svg" font-family="Arial, sans-serif">
+  <rect width="680" height="220" fill="#ffffff"/>
+
+  <!-- Ось и подписи -->
+  <text x="20" y="30" font-size="14" fill="#2c2c2a" font-weight="bold">Размер образа consumer: однослойный vs multi-stage</text>
+
+  <!-- Bar 1: Однослойный -->
+  <text x="20" y="75" font-size="12" fill="#52514e">Однослойный (build-base + cmake + boost-dev)</text>
+  <rect x="20" y="85" width="500" height="28" rx="4" fill="#2a78d6"/>
+  <text x="530" y="104" font-size="13" fill="#0b0b0b" font-weight="bold">~350 МБ</text>
+
+  <!-- Bar 2: Multi-stage -->
+  <text x="20" y="150" font-size="12" fill="#52514e">Multi-stage (только рантайм)</text>
+  <rect x="20" y="160" width="36" height="28" rx="4" fill="#2a78d6"/>
+  <text x="66" y="179" font-size="13" fill="#0b0b0b" font-weight="bold">~25 МБ</text>
+
+  <text x="20" y="210" font-size="10" fill="#898781">Значения ориентировочные, для иллюстрации разницы в подходах к сборке</text>
+</svg>
