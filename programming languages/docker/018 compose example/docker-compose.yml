@@ -1,0 +1,31 @@
+services:
+  consumer:
+    build:
+      context: .
+      target: consumer
+    ports:
+      - "5000:5000"
+    networks:
+      - mynet
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "5000"]
+      interval: 2s
+      timeout: 2s
+      retries: 5
+    restart: unless-stopped
+
+  producer:
+    build:
+      context: .
+      target: producer
+    depends_on:
+      consumer:
+        condition: service_healthy
+    networks:
+      - mynet
+    # producer одноразовый — запускается, шлёт запрос, завершается.
+    # command переопределяет ENTRYPOINT/CMD, если нужно передать другие аргументы
+    command: ["consumer", "Привет из Compose!"]
+
+networks:
+  mynet:

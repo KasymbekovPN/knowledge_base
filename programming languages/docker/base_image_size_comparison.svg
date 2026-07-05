@@ -1,0 +1,27 @@
+<svg viewBox="0 0 680 260" xmlns="http://www.w3.org/2000/svg" font-family="Arial, sans-serif">
+  <rect width="680" height="260" fill="#ffffff"/>
+
+  <text x="20" y="28" font-size="14" fill="#2c2c2a" font-weight="bold">Размер базовых образов</text>
+
+  <!-- alpine:3.20 : 7MB -->
+  <text x="20" y="60" font-size="12" fill="#52514e">alpine:3.20</text>
+  <rect x="140" y="48" width="14" height="24" rx="3" fill="#2a9d6f"/>
+  <text x="164" y="65" font-size="13" fill="#0b0b0b" font-weight="bold">~7 МБ</text>
+
+  <!-- ubuntu:22.04 : 78MB -->
+  <text x="20" y="105" font-size="12" fill="#52514e">ubuntu:22.04</text>
+  <rect x="140" y="93" width="156" height="24" rx="3" fill="#2a78d6"/>
+  <text x="306" y="110" font-size="13" fill="#0b0b0b" font-weight="bold">~78 МБ</text>
+
+  <!-- debian:12-slim : 80MB -->
+  <text x="20" y="150" font-size="12" fill="#52514e">debian:12-slim</text>
+  <rect x="140" y="138" width="160" height="24" rx="3" fill="#2a78d6"/>
+  <text x="310" y="155" font-size="13" fill="#0b0b0b" font-weight="bold">~80 МБ</text>
+
+  <!-- debian:12 full : 120MB -->
+  <text x="20" y="195" font-size="12" fill="#52514e">debian:12 (full)</text>
+  <rect x="140" y="183" width="240" height="24" rx="3" fill="#d6702a"/>
+  <text x="390" y="200" font-size="13" fill="#0b0b0b" font-weight="bold">~120 МБ</text>
+
+  <text x="20" y="240" font-size="10" fill="#898781">Значения ориентировочные, зависят от конкретной версии тега образа</text>
+</svg>
