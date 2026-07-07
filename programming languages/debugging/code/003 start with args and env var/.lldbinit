@@ -1,0 +1,10 @@
+target create .\build\debug\app.exe
+settings set target.run-args one two flag=42
+settings set target.env-vars LOG_LEVEL=debug BOOST_ASIO_DISABLE_THREADS=1
+breakpoint set --file amin.cpp --line 21
+run
+print argv[1]
+print argv[2]
+print argv[3]
+print slog_level
+print s_threads

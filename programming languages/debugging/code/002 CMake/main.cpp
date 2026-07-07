@@ -2,7 +2,7 @@
 #include <format>
 
 int main() {
-    const int SIZE{3};
+    constexpr int SIZE{3};
     for (int i{}; i < SIZE; ++i) {
         int sq{i * i};
         std::cout << std::format("sq: {}\n", sq);
@@ -46,7 +46,6 @@ print sq
 
 C:\msys64\clang64\bin\gdb.exe ./build/debug/app.exe
 C:\msys64\clang64\bin\gdb.exe ./build/relwithdebinfo/app.exe
-break C:\projects\knowledge_base\programming languages\debuging\code\002 CMake\main.cpp:8
 break main.cpp:8
 run
 info locals
