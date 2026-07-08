@@ -5,7 +5,7 @@ tags:
   - gdb
   - lldb
 ---
-[[programming languages/debuging/_|<=]]
+[[programming languages/debugging/_|<=]]
 
 ## 2. Breakpoint по файлу:строке
 

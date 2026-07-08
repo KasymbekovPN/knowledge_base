@@ -5,7 +5,7 @@ tags:
   - gdb
   - lldb
 ---
-[[programming languages/debuging/_|<=]]
+[[programming languages/debugging/_|<=]]
 
 ```cpp
 #include <coroutine>  

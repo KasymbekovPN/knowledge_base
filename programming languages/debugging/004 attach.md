@@ -5,7 +5,7 @@ tags:
   - gdb
   - lldb
 ---
-[[programming languages/debuging/_|<=]]
+[[programming languages/debugging/_|<=]]
 
 ## Linux — `gdb -p PID` / `lldb -p PID`
 

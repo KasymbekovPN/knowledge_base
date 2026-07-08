@@ -5,8 +5,7 @@ tags:
   - gdb
   - lldb
 ---
-[[programming languages/debuging/_|<=]]
-
+[[programming languages/debugging/_|<=]]
 
 # Запуск GDB/LLDB: аргументы и переменные окружения
 
