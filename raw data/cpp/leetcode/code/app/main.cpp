@@ -1,0 +1,43 @@
+#include <iostream>
+
+#include "two_sum.h"
+#include "best_time_buy_sell.h"
+#include "max_subarray.h"
+#include "merge_intervals.h"
+#include "product_except_self.h"
+#include "len_of_longest_substring.h"
+#include "group_anagram.h"
+#include "valid_parentheses.h"
+#include "container_most_water.h"
+#include "three_sum.h"
+#include "reverse_linked_list.h"
+#include "detect_cycle_in_ll.h"
+#include "merge_two_sorted_lists.h"
+#include "remove_nth_node_from_end.h"
+#include "lru_cache.h"
+#include "max_depth_binary_tree.h"
+#include "validate_bst.h"
+#include "binary_tree_level_order_traversal.h"
+#include "lowest_common_ancestor.h"
+
+int main(int argc, char *argv[]) {
+    // two_sum::demo();
+    // best_time_buy_sell::demo();
+    // max_subarray::demo();
+    // merge_intervals::demo();
+    // product_except_self::demo();
+    // len_of_longest_substring::demo();
+    // group_anagram::demo();
+    // valid_parentheses::demo();
+    // container_most_water::demo();
+    // three_sum::demo();
+    // reverse_linked_list::demo();
+    // detect_cycle_in_ll::demo();
+    // merge_two_sorted_lists::demo();
+    // remove_nth_node_from_end::demo();
+    // lru_cache::demo();
+    // max_depth_binary_tree::demo();
+    // validate_bst::demo();
+    // binary_tree_level_order_traversal::demo();
+    lowest_common_ancestor::demo();
+}
