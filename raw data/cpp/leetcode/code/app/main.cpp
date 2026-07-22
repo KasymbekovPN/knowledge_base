@@ -19,6 +19,13 @@
 #include "validate_bst.h"
 #include "binary_tree_level_order_traversal.h"
 #include "lowest_common_ancestor.h"
+#include "ser_des_binary_tree.h"
+#include "number_of_islands.h"
+#include "clone_graph.h"
+#include "topological_sort.h"
+#include "word_ladder.h"
+#include "climbing_stairs.h"
+#include "coin_change.h"
 
 int main(int argc, char *argv[]) {
     // two_sum::demo();
@@ -39,5 +46,12 @@ int main(int argc, char *argv[]) {
     // max_depth_binary_tree::demo();
     // validate_bst::demo();
     // binary_tree_level_order_traversal::demo();
-    lowest_common_ancestor::demo();
+    // lowest_common_ancestor::demo();
+    // ser_des_binary_tree::demo();
+    // number_of_islands::demo();
+    // clone_graph::demo();
+    // topological_sort::demo();
+    // word_ladder::demo();
+    // climbing_stairs::demo();
+    coin_change::demo();
 }
