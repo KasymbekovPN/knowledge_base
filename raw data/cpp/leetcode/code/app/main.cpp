@@ -26,6 +26,13 @@
 #include "word_ladder.h"
 #include "climbing_stairs.h"
 #include "coin_change.h"
+#include "longest_common_subsequence.h"
+#include "longest_increasing_subsequence.h"
+#include "edit_distance.h"
+#include "house_robber.h"
+#include "word_break.h"
+#include "knapsack01.h"
+#include "min_stack.h"
 
 int main(int argc, char *argv[]) {
     // two_sum::demo();
@@ -53,5 +60,12 @@ int main(int argc, char *argv[]) {
     // topological_sort::demo();
     // word_ladder::demo();
     // climbing_stairs::demo();
-    coin_change::demo();
+    // coin_change::demo();
+    // longest_common_subsequence::demo();
+    // longest_increasing_subsequence::demo();
+    // edit_distance::demo();
+    // house_robber::demo();
+    // word_break::demo();
+    // knapsack01::demo();
+    min_stack::demo();
 }
