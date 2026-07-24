@@ -5,7 +5,92 @@
 **Условие:** дан массив целых чисел `nums` и число `k`. Найти `k`-й по величине элемент в отсортированном порядке (не обязательно уникальный — считается порядковая позиция после сортировки, а не k-е уникальное значение).
 
 ```cpp
-!!!
+#include "kth_largest_element.h"  
+  
+#include <vector>  
+#include <queue>  
+#include <algorithm>  
+#include <cstdlib>  
+#include <iostream>  
+#include <format>  
+  
+namespace kth_largest_element {  
+// solution 1  
+int find_kth_largest(const std::vector<int>& nums, const int k) {  
+    std::vector<int> copy{nums.begin(), nums.end()};  
+    std::ranges::sort(copy, std::greater<>());  
+  
+    return copy[k - 1];  
+}  
+  
+// solution 2  
+int find_kth_largest_heap(const std::vector<int>& nums, const int k) {  
+    std::priority_queue<int, std::vector<int>, std::greater<>> min_heap;  
+  
+    for (const auto& num : nums) {  
+        min_heap.push(num);  
+        if (static_cast<int>(min_heap.size()) > k) {  
+            // выбрасываем наименьший, если размер превысил k  
+            min_heap.pop();  
+        }    
+    }  
+    return min_heap.top();  
+}  
+  
+// solution 3  
+  
+static int partition(std::vector<int>& nums,  
+                     const int left,  
+                     const int right,  
+                     const int pivot_index) {  
+    const int pivot_value{nums[pivot_index]};  
+    // прячем pivot в конец  
+    std::swap(nums[pivot_index], nums[right]);  
+    int store_index{left};  
+  
+    for (int i{left}; i < right; ++i) {  
+        if (nums[i] < pivot_value) {  
+            std::swap(nums[i], nums[store_index]);  
+            ++store_index;  
+        }    
+    }  
+    // возвращаем pivot на финальную позицию  
+    std::swap(nums[store_index], nums[right]);  
+    return store_index;  
+}  
+  
+static int quick_select(std::vector<int>& nums, const int left, const int right, const int target_index) {  
+    if (left == right) return nums[left];  
+  
+    // случайный выбор pivot  
+    int pivot_index{left + std::rand() % (right - left + 1)};  
+    pivot_index = partition(nums, left, right, pivot_index);  
+  
+    if (target_index == pivot_index) {  
+        return nums[target_index];  
+    }    
+    if (target_index < pivot_index) {  
+        return quick_select(nums, left, pivot_index - 1, target_index);  
+    }    
+    return quick_select(nums, pivot_index + 1, right, target_index);  
+}  
+  
+int find_kth_largest_quick_select(const std::vector<int>& nums, const int k) {  
+    const int N{static_cast<int>(nums.size())};  
+    std::vector<int> copy{nums.begin(), nums.end()};  
+  
+    return quick_select(copy, 0, N - 1, N - k);  
+}  
+  
+void demo() {  
+    constexpr int K{2};  
+    const std::vector<int> NUMS{3,2,1,5,6,4};  
+  
+    std::cout << std::format("solution 1: {}\n", find_kth_largest(NUMS, K));  
+    std::cout << std::format("solution 2: {}\n", find_kth_largest_heap(NUMS, K));  
+    std::cout << std::format("solution 3: {}\n", find_kth_largest_quick_select(NUMS, K));  
+}  
+}
 ```
 
 ### Решение 1: сортировка (простое, но не оптимальное)
@@ -67,55 +152,3 @@ top() = 5  (2-й по величине: 6,5,4,3,2,1 -> 2-й это 5)
 - **Top K Frequent Elements** — аналогичная задача, но ключ для кучи/quickselect — частота встречаемости элемента, а не само значение (нужна предварительная агрегация через hash map).
 - **Median of Data Stream** — потоковая версия, где нужен k-й элемент (медиана) при постоянно поступающих данных — решается через две кучи (min-heap и max-heap), а не quickselect (который требует статичный массив).
 - **Wiggle Sort II** — использует поиск медианы (частный случай Kth Element) как подготовительный шаг перед перестановкой массива.
-
----
----
----
-
-- [x] Array/String - Two Sum (2026.07.18)
-- [x] Array/String - Best Time to Buy and Sell Stock (2026.07.18)
-- [x] Array/String - Maximum Subarray (Kadane's algorithm) (2026.07.18)
-- [x] Array/String - Merge Intervals (2026.07.18)
-- [x] Array/String - Product of Array Except Self (2026.07.19)
-- [x] Array/String - Longest Substring Without Repeating Characters (2026.07.19)
-- [x] Array/String - Group Anagrams (2026.07.19)
-- [x] Array/String - Valid Parentheses (2026.07.19)
-- [x] Array/String - Container With Most Water (2026.07.19)
-- [x] Array/String - 3Sum (2026.07.19)
-- [x] LinkedList - Reverse Linked List (2026.07.19)
-- [x] LinkedList - Detect Cycle in Linked List (Floyd's) (2026.07.19)
-- [x] LinkedList - Merge Two Sorted Lists (2026.07.21)
-- [x] LinkedList - Remove Nth Node From End of List (2026.07.21)
-- [x] LinkedList - LRU Cache (список + hash map) (2026.07.21)
-- [x] Trees/Graphs - Maximum Depth of Binary Tree (2026.07.21)
-- [x] Trees/Graphs - Validate Binary Search Tree (2026.07.21)
-- [x] Trees/Graphs - Binary Tree Level Order Traversal (2026.07.21)
-- [x] Trees/Graphs - Lowest Common Ancestor of a BST/BT (2026.07.21)
-- [x] Trees/Graphs - Serialize and Deserialize Binary Tree (2026.07.22)
-- [x] Trees/Graphs - Number of Islands (BFS/DFS) (2026.07.22)
-- [x] Trees/Graphs - Clone Graph (2026.07.22)
-- [x] Trees/Graphs - Course Schedule (topological sort) (2026.07.22)
-- [x] Trees/Graphs - Word Ladder (BFS) (2026.07.22)
-- [x] Dynamic - Climbing Stairs (2026.07.22)
-- [x] Dynamic - Coin Change (2026.07.22)
-- [x] Dynamic - Longest Common Subsequence (2026.07.23)
-- [x] Dynamic - Longest Increasing Subsequence (2026.07.23)
-- [x] Dynamic - Edit Distance (2026.07.23)
-- [x] Dynamic - House Robber (2026.07.23)
-- [x] Dynamic - Word Break (2026.07.23)
-- [x] Dynamic - 0/1 Knapsack (2026.07.23)
-- [x] head/stack/queue - Min Stack (2026.07.23)
-- [ ] head/stack/queue - Kth Largest Element in an Array
-- [ ] head/stack/queue - Top K Frequent Elements
-- [ ] head/stack/queue - Sliding Window Maximum
-- [ ] backtracking - Permutations
-- [ ] backtracking - Subsets
-- [ ] backtracking - N-Queens
-- [ ] backtracking - Combination Sum
-- [ ] other - Binary Search
-- [ ] other - Search in Rotated Sorted Array
-- [ ] other - Trapping Rain Water
-- [ ] other - Merge K Sorted Lists
-- [ ] other - Design a Trie (Prefix Tree)
-
-

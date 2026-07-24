@@ -33,6 +33,12 @@
 #include "word_break.h"
 #include "knapsack01.h"
 #include "min_stack.h"
+#include "kth_largest_element.h"
+#include "top_k_freq_elements.h"
+#include "sliding_window_max.h"
+#include "backtrack_permutations.h"
+#include "subsets.h"
+#include "nqueens.h"
 
 int main(int argc, char *argv[]) {
     // two_sum::demo();
@@ -67,5 +73,11 @@ int main(int argc, char *argv[]) {
     // house_robber::demo();
     // word_break::demo();
     // knapsack01::demo();
-    min_stack::demo();
+    // min_stack::demo();
+    // kth_largest_element::demo();
+    // top_k_freq_elements::demo();
+    // sliding_window_max::demo();
+    // backtrack_permutations::demo();
+    // subsets::demo();
+    nqueens::demo();
 }
