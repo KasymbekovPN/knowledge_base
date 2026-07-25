@@ -39,6 +39,11 @@
 #include "backtrack_permutations.h"
 #include "subsets.h"
 #include "nqueens.h"
+#include "combination_sum.h"
+#include "binary_search.h"
+#include "search_rotated_sorted.h"
+#include "trapping_rain_water.h"
+#include "merge_k_sorted_lists.h"
 
 int main(int argc, char *argv[]) {
     // two_sum::demo();
@@ -79,5 +84,10 @@ int main(int argc, char *argv[]) {
     // sliding_window_max::demo();
     // backtrack_permutations::demo();
     // subsets::demo();
-    nqueens::demo();
+    // nqueens::demo();
+    // combination_sum::demo();
+    // binary_search::demo();
+    // search_rotated_sorted::demo();
+    // trapping_rain_water::demo();
+    merge_k_sorted_lists::demo();
 }
