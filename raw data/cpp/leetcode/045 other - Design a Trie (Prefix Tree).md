@@ -17,60 +17,84 @@ Trie — дерево, где каждый узел представляет о�
 ### Решение
 
 ```cpp
-#include <string>
-#include <array>
-#include <memory>
-
-class TrieNode {
-public:
-    std::array<std::unique_ptr<TrieNode>, 26> children;
-    bool isEndOfWord = false;
-};
-
-class Trie {
-public:
-    Trie() : root_(std::make_unique<TrieNode>()) {}
-
-    void insert(const std::string& word) {
-        TrieNode* node = root_.get();
-
-        for (char c : word) {
-            int idx = c - 'a';
-            if (node->children[idx] == nullptr) {
-                node->children[idx] = std::make_unique<TrieNode>();
-            }
-            node = node->children[idx].get();
-        }
-
-        node->isEndOfWord = true;
-    }
-
-    bool search(const std::string& word) const {
-        const TrieNode* node = findNode(word);
-        return node != nullptr && node->isEndOfWord;
-    }
-
-    bool startsWith(const std::string& prefix) const {
-        return findNode(prefix) != nullptr;
-    }
-
-private:
-    const TrieNode* findNode(const std::string& s) const {
-        const TrieNode* node = root_.get();
-
-        for (char c : s) {
-            int idx = c - 'a';
-            if (node->children[idx] == nullptr) {
-                return nullptr; // путь оборвался -> такого префикса нет
-            }
-            node = node->children[idx].get();
-        }
-
-        return node; // дошли до конца s -> возвращаем узел (не проверяем isEndOfWord здесь)
-    }
-
-    std::unique_ptr<TrieNode> root_;
-};
+#include "trie_prefix_tree.h"  
+  
+#include <memory>  
+#include <array>  
+#include <string>  
+#include <vector>  
+#include <iostream>  
+#include <format>  
+  
+namespace trie_prefix_tree {  
+  
+static constexpr char START_CHAR{'a'};  
+  
+static int calculate_idx(const char c) {  
+    return c - START_CHAR;  
+}  
+  
+class TrieNode {  
+public:  
+    static constexpr int SIZE{26};  
+    std::array<std::unique_ptr<TrieNode>, SIZE> children;  
+    bool is_end_of_word{false};  
+};  
+  
+Trie::Trie(): root_{std::make_unique<TrieNode>()} {}  
+  
+void Trie::insert(const std::string& word) {  
+    TrieNode* node{root_.get()};  
+  
+    for (const auto& c: word) {  
+        const int IDX{calculate_idx(c)};  
+        if (!node->children[IDX]) {  
+            node->children[IDX] = std::make_unique<TrieNode>();  
+        }  
+        node = node->children[IDX].get();  
+    }  
+    node->is_end_of_word = true;  
+}  
+  
+bool Trie::search(const std::string& word) const {  
+    const TrieNode* node{find_node(word)};  
+    return node && node->is_end_of_word;  
+}  
+  
+bool Trie::starts_with(const std::string& word) const {  
+    return find_node(word) != nullptr;  
+}  
+  
+void Trie::print(TrieNode* node, const int offset) {  
+    TrieNode* pointer = node ? node : root_.get();  
+    for (int i{}; i < 26; ++i) {  
+        if (!pointer->children[i]) continue;  
+        std::cout << std::format("{}{}\n", std::string(offset, ' '), static_cast<char>(i + START_CHAR));  
+        print(pointer->children[i].get(), offset + 1);  
+    }}  
+  
+const TrieNode* Trie::find_node(const std::string& word) const {  
+    const TrieNode* node{root_.get()};  
+  
+    for (const auto& c: word) {  
+        const int IDX{calculate_idx(c)};  
+        if (!node->children[IDX]) {  
+            return nullptr;  
+        }        node = node->children[IDX].get();  
+    }  
+    return node;  
+}  
+  
+void demo() {  
+    const std::vector<std::string> WORDS{"hello", "world"};  
+  
+    Trie trie;  
+    for (const auto& word : WORDS) {  
+        trie.insert(word);  
+    }  
+    trie.print(nullptr, 0);  
+}  
+}
 ```
 
 ### Разбор
@@ -122,55 +146,3 @@ root
 ### Частый доп. вопрос: "почему `std::array<unique_ptr<TrieNode>, 26>`, а не `unordered_map<char, TrieNode*>`?"
 
 Фиксированный массив даёт O(1) доступ по индексу без хеширования и без overhead на хранение самих ключей-символов — быстрее и компактнее при известном небольшом алфавите (26 латинских букв). `unordered_map` предпочтительнее, если алфавит большой и разреженный (например, Unicode) — тогда массив на все возможные символы был бы избыточно большим и в основном пустым.
-
----
----
----
-
-- [x] Array/String - Two Sum (2026.07.18)
-- [x] Array/String - Best Time to Buy and Sell Stock (2026.07.18)
-- [x] Array/String - Maximum Subarray (Kadane's algorithm) (2026.07.18)
-- [x] Array/String - Merge Intervals (2026.07.18)
-- [x] Array/String - Product of Array Except Self (2026.07.19)
-- [x] Array/String - Longest Substring Without Repeating Characters (2026.07.19)
-- [x] Array/String - Group Anagrams (2026.07.19)
-- [x] Array/String - Valid Parentheses (2026.07.19)
-- [x] Array/String - Container With Most Water (2026.07.19)
-- [x] Array/String - 3Sum (2026.07.19)
-- [x] LinkedList - Reverse Linked List (2026.07.19)
-- [x] LinkedList - Detect Cycle in Linked List (Floyd's) (2026.07.19)
-- [x] LinkedList - Merge Two Sorted Lists (2026.07.21)
-- [x] LinkedList - Remove Nth Node From End of List (2026.07.21)
-- [x] LinkedList - LRU Cache (список + hash map) (2026.07.21)
-- [x] Trees/Graphs - Maximum Depth of Binary Tree (2026.07.21)
-- [x] Trees/Graphs - Validate Binary Search Tree (2026.07.21)
-- [x] Trees/Graphs - Binary Tree Level Order Traversal (2026.07.21)
-- [x] Trees/Graphs - Lowest Common Ancestor of a BST/BT (2026.07.21)
-- [x] Trees/Graphs - Serialize and Deserialize Binary Tree (2026.07.22)
-- [x] Trees/Graphs - Number of Islands (BFS/DFS) (2026.07.22)
-- [x] Trees/Graphs - Clone Graph (2026.07.22)
-- [x] Trees/Graphs - Course Schedule (topological sort) (2026.07.22)
-- [x] Trees/Graphs - Word Ladder (BFS) (2026.07.22)
-- [x] Dynamic - Climbing Stairs (2026.07.22)
-- [x] Dynamic - Coin Change (2026.07.22)
-- [x] Dynamic - Longest Common Subsequence (2026.07.23)
-- [x] Dynamic - Longest Increasing Subsequence (2026.07.23)
-- [x] Dynamic - Edit Distance (2026.07.23)
-- [x] Dynamic - House Robber (2026.07.23)
-- [x] Dynamic - Word Break (2026.07.23)
-- [x] Dynamic - 0/1 Knapsack (2026.07.23)
-- [x] head/stack/queue - Min Stack (2026.07.23)
-- [x] head/stack/queue - Kth Largest Element in an Array (2026.07.24)
-- [x] head/stack/queue - Top K Frequent Elements (2026.07.24)
-- [x] head/stack/queue - Sliding Window Maximum (2026.07.24)
-- [x] backtracking - Permutations (2026.07.24)
-- [x] backtracking - Subsets (2026.07.24)
-- [x] backtracking - N-Queens (2026.07.24)
-- [x] backtracking - Combination Sum (2026.07.25)
-- [x] other - Binary Search (2026.07.25)
-- [x] other - Search in Rotated Sorted Array (2026.07.25)
-- [x] other - Trapping Rain Water (2026.07.25)
-- [x] other - Merge K Sorted Lists (2026.07.25)
-- [ ] other - Design a Trie (Prefix Tree)
-
-

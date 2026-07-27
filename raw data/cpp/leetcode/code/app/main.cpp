@@ -44,6 +44,7 @@
 #include "search_rotated_sorted.h"
 #include "trapping_rain_water.h"
 #include "merge_k_sorted_lists.h"
+#include "trie_prefix_tree.h"
 
 int main(int argc, char *argv[]) {
     // two_sum::demo();
@@ -89,5 +90,6 @@ int main(int argc, char *argv[]) {
     // binary_search::demo();
     // search_rotated_sorted::demo();
     // trapping_rain_water::demo();
-    merge_k_sorted_lists::demo();
+    // merge_k_sorted_lists::demo();
+    trie_prefix_tree::demo();
 }
