@@ -68,9 +68,9 @@ private:
     void unsubscribeRaw(const std::type_index type, const SubscriptionId id) {
         const auto it{handlers_.find(type)};
         if (it == handlers_.end()) return;
-        const auto& list = it->second;
+        auto& list = it->second;
         list.erase(
-            std::ranges::remove_if(list, [id](const auto& entry){ return entry.first == id; }),
+            std::ranges::remove_if(list, [id](const auto& entry){ return entry.first == id; }).begin(),
             list.end());
     }
 

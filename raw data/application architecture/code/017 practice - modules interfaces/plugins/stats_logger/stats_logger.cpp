@@ -1,7 +1,7 @@
 // Плагин 2: считает завершённые задачи (аналог CompletionStats).
 // Host о его существовании узнаёт только в рантайме - можно добавлять
 // новые observer-плагины, не трогая и не пересобирая host вообще.
-#include "task_observer_api/itask_observer.hpp"
+#include "itask_observer.hpp"
 
 #include <iostream>
 #include <format>

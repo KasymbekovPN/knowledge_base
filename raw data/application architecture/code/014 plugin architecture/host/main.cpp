@@ -79,7 +79,7 @@ namespace platform {
     inline std::string pluginFileName(const std::string& baseName) { return "lib" + baseName + ".so"; }
 #endif
 
-    constexpr LibraryHandle kInvalidHandle{};
+    constexpr LibraryHandle K_INVALID_HANDLE{};
     // constexpr LibraryHandle kInvalidHandle{};
 }
 
@@ -91,7 +91,7 @@ class LoadedPlugin {
 public:
     static std::unique_ptr<LoadedPlugin> load(const std::string& path) {
         platform::LibraryHandle handle = platform::openLibrary(path);
-        if (handle == platform::kInvalidHandle) {
+        if (handle == platform::K_INVALID_HANDLE) {
             std::cerr << std::format("  library loading error: {}\n", platform::lastError());
             return nullptr;
         }
@@ -122,7 +122,7 @@ public:
     ~LoadedPlugin() {
         // уничтожаем ЧЕРЕЗ фабрику плагина, не delete напрямую
         if (instance_) destroy_(instance_);
-        if (handle_ != platform::kInvalidHandle) platform::closeLibrary(handle_);
+        if (handle_ != platform::K_INVALID_HANDLE) platform::closeLibrary(handle_);
     }
 
     IPlugin* get() { return instance_; }
@@ -134,7 +134,7 @@ private:
     LoadedPlugin(platform::LibraryHandle handle, IPlugin* instance, DestroyPluginFn destroy):
         handle_{handle}, instance_{instance}, destroy_{destroy} {}
 
-    platform::LibraryHandle handle_ = platform::kInvalidHandle;
+    platform::LibraryHandle handle_ = platform::K_INVALID_HANDLE;
     IPlugin* instance_{nullptr};
     DestroyPluginFn destroy_{nullptr};
 };

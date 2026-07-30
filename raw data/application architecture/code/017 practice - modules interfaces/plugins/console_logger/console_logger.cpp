@@ -2,7 +2,7 @@
 // предыдущей версии пет-проекта, только теперь это отдельно собираемая
 // и отдельно загружаемая библиотека).
 
-#include "task_observer_api/itask_observer.hpp"
+#include "itask_observer.hpp"
 
 #include <iostream>
 #include <format>
@@ -23,7 +23,7 @@ public:
     }
 };
 
-extern "C" {s
+extern "C" {
 
 int taskObserverApiVersion() { return TASK_OBSERVER_API_VERSION; }
 ITaskObserver* createTaskObserver() { return new ConsoleLoggerObserver(); }
