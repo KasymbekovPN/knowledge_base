@@ -1,0 +1,4 @@
+name,health,damage,speed
+Goblin,20,3,1.5
+Orc,50,8,1.0
+Dragon,500,40,0.8
