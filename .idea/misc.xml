@@ -3,6 +3,8 @@
   <component name="CMakePythonSetting">
     <option name="pythonIntegrationState" value="YES" />
   </component>
-  <component name="CMakeWorkspace" PROJECT_DIR="$PROJECT_DIR$" />
+  <component name="CMakeWorkspace" PROJECT_DIR="$PROJECT_DIR$/raw data/application architecture/code/029 practice - final project">
+    <contentRoot DIR="$PROJECT_DIR$" />
+  </component>
   <component name="WestSettings">{}</component>
 </project>
