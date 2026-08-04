@@ -5,8 +5,6 @@
 #include <memory>
 #include <vector>
 
-#include "command.hpp"
-
 namespace commands {
     // Диспетчер команд с undo/redo. Не знает НИЧЕГО про конкретные команды -
     // работает только через ICommand. execute() чистит redo-стек, как и

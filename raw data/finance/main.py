@@ -19,7 +19,8 @@ INNER_KEY_HANDLER = 'handler'
 
 PARAM_PDF_NAMES = 'pdf_names'
 
-SPATTERN = pattern = r'(\d{2}\.\d{2}\.\d{4} \d{2}:\d{2})\s+(.+?)\s+([+-]?\d[\d ]*,\d{2})\s+(\d[\d ]*,\d{2})$'
+SPATTERN = r'(\d{2}\.\d{2}\.\d{4} \d{2}:\d{2})\s+(.+?)\s+([+-]?\d[\d ]*,\d{2})\s+(\d[\d ]*,\d{2})$'
+TPATTERN = r'^(\d{2}\.\d{2}\.\d{2} \d{2}:\d{2}) \d{2}\.\d{2}\.\d{2} (.+?) ([\d.]+)\s*₽'
 
 def get_config():
     main_config = configparser.ConfigParser()
@@ -86,29 +87,53 @@ def define_pdf_handler(config, params, result):
     result[INNER_KEY_HANDLER] = handlers
 
 def handle_pdf_sources_as_s(path, config, params, result):
-    # print('handle_pdf_sources_as_s ', path)
-    # print('handle_pdf_sources_as_s ', result[INNER_KEY_LINES][path])
+    buffer = {}
     for line in result[INNER_KEY_LINES][path]:
+
+        if len(buffer) != 0:
+            idx = line.find('Операция по карте')
+            if idx != -1:
+                sub = line[17:line.find('Операция по карте')].strip()
+                if 'Перевод для К. Павел Николаевич' not in sub:
+                    pure_amount = buffer['amount'].strip()
+                    if pure_amount[0] != '+':
+                        buffer['description'] = sub
+                        write_payment(buffer)
+
+            buffer.clear()
+            continue
+
         m = re.match(SPATTERN, line)
         if m == None:
             continue
         date, operation, amount, balance = m.groups()
-
-        pure_amount = amount.strip()
-        if operation.strip() == "Перевод СБП" and pure_amount == "50 000,00":
-            continue
-        if pure_amount[0] == '+':
-            continue
-
-        pure_op = operation.strip()
-        pure_date = date.strip().replace('.', '-')
-        print('data: /', pure_date, '/, op: /', operation, '/, amount: /', pure_amount)
-
+        buffer['date'] = date
+        buffer['operation'] = operation
+        buffer['amount'] = amount
+        buffer['balance'] = balance
+        buffer['source'] = 'S'
 
 def handle_pdf_sources_as_t(path, config, params, result):
     # print('handle_pdf_sources_as_t ', path)
     # print('handle_pdf_sources_as_t ', result[INNER_KEY_LINES][path])
+
+    buffer = {}
+    for line in result[INNER_KEY_LINES][path]:
+        m = re.match(TPATTERN, line)
+        if m == None:
+            continue
+
+        date, description, amount = m.groups()
+        date = re.sub(r'\.(\d{2})\s', r".20\1 ", date)
+        buffer['date'] = date
+        buffer['description'] = description
+        buffer['amount'] = amount
+        buffer['source'] = 'T'
+        write_payment(buffer)
     pass
+
+def write_payment(buffer):
+    print(buffer)
 
 if __name__ == '__main__':
     config = get_config()

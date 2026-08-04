@@ -1,7 +1,6 @@
 
 c++ attributes
-настройка clion
-точка входа в приложение
+pybind11
 wasm
 protobuf
 clangd
