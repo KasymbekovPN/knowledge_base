@@ -1,0 +1,18 @@
+// proto2: presence всегда явная (explicit), required реально существует
+syntax = "proto2";
+package com.example.v2;
+
+message Player {
+  optional string name = 1 [default = "N/A"];
+  required int32 id = 2; // required — только в proto2, признан антипаттерном
+  repeated  int32 scores = 3; // НЕ packed по умолчанию в proto2
+
+  enum Handed {
+    HANDED_UNSPECIFIED = 0;
+    HANDED_LEFT = 1;
+    HANDED_RIGHT = 2;
+  }
+  optional Handed handed = 4; // enum в proto2 закрытый (closed)
+
+  reserved "gender";
+}

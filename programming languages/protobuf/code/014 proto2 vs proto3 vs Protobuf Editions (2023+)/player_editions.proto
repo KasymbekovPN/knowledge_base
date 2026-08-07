@@ -1,0 +1,20 @@
+// Editions: единый синтаксис вместо proto2/proto3. Presence по умолчанию
+// EXPLICIT для всех полей (как в proto2) — переопределяется поточечно
+// через features.field_presence, а не через выбор всего "диалекта" файла.
+edition = "2024";
+package com.example.ed;
+
+message Player {
+  string name = 1 [default = "N/A"]; // EXPLICIT по умолчанию, has_name()
+  int32 id = 2 [features.field_presence = IMPLICIT]; // явно просим implicit, как в proto3
+  repeated int32 scores = 3; // PACKED по умолчанию в 2024
+
+  enum Handed {
+    HANDED_UNSPECIFIED = 0;
+    HANDED_LEFT = 1;
+    HANDED_RIGHT = 2;
+  }
+  Handed handed = 4;
+
+  reserved  gender; // без кавычек — новая грамматика editions
+}

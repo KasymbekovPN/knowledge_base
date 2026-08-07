@@ -1,0 +1,14 @@
+syntax = "proto3";
+package myapp.v2good;
+
+// Безопасная эволюция: поле retry_count убрали из API, но номер 3
+// зарезервирован, чтобы никто случайно не переиспользовал его.
+// Новое поле email получает НОВЫЙ номер 4, а не 3.
+message Event {
+  reserved 3;
+  reserved "retry_count";
+
+  int32 id = 1;
+  string type = 2;
+  string email = 4;
+}

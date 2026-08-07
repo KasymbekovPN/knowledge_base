@@ -1,0 +1,19 @@
+// proto3: presence по умолчанию неявная (implicit) для скаляров,
+// явная presence только если явно написать `optional`
+syntax = "proto3";
+package com.example.v3;
+
+message Player {
+  optional string name = 1; // explicit presence, есть has_name()
+  int32 id = 2; // implicit presence, has_id() НЕТ
+  repeated int32 scores = 3; // packed по умолчанию в proto3
+
+  enum Handed {
+    HANDED_UNSPECIFIED = 0;
+    HANDED_LEFT = 1;
+    HANDED_RIGHT = 2;
+  }
+  optional Handed handed = 4; // enum в proto3 открытый (open)
+
+  reserved "gender";
+}

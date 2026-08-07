@@ -1,0 +1,15 @@
+syntax = "proto3";
+package myapp.v2violation;
+
+// Этот файл специально ломает reserved-запрет — protoc должен отказаться
+// его компилировать. Демонстрирует, что компилятор защищает от повторного
+// использования номера/имени ВНУТРИ одного файла (но не между версиями
+// разных файлов во времени — см. schema_v2_bad.proto).
+message Event {
+  reserved 3;
+  reserved "retry_count";
+
+  int32 id = 1;
+  string type = 2;
+  int32 ops = 3; // нарушение reserved 3
+}

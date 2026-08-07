@@ -5,6 +5,7 @@ build/
 .build-*/
 install
 
+*.o
 *.pyc
 *.txt
 *.json

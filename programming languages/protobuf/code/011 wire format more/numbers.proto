@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package myapp;
+
+message Numbers{
+  int32 a = 1; // varint, без zigzag
+  sint32 b = 2; // varint + zigzag
+  int64 c = 3; // varint, без zigzag
+  sint64 d = 4; // varint + zigzag
+  fixed32 e = 5; // всегда 4 байта, без varint
+}

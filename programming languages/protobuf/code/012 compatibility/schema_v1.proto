@@ -1,0 +1,9 @@
+syntax = "proto3";
+package myapp.v1;
+
+// Исходная схема, уже "в проде" — старые клиенты сериализуют именно так.
+message Event {
+  int32 id = 1;
+  string type = 2;
+  int32 retry_count = 3;
+}

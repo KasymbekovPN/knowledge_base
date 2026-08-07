@@ -1,0 +1,35 @@
+syntax = "proto3";
+
+package myapp;
+
+import "users/user.proto";
+import "common/address.proto";
+
+option optimize_for = SPEED;
+
+message Order {
+  message Item {
+    string sku = 1;
+    string title = 2;
+    int32 quantity = 3;
+    double unit_price = 4;
+  }
+
+  enum OrderStatus {
+    ORDER_STATUS_UNKNOWN = 0;
+    ORDER_STATUS_PENDING = 1;
+    ORDER_STATUS_PAID = 2;
+    ORDER_STATUS_SHIPPED = 3;
+    ORDER_STATUS_CANCELLED = 4;
+  }
+
+  int64 order_id = 1;
+  User buyer = 2;
+  Address shipping_address = 3;
+  repeated Item item = 4;
+  OrderStatus status = 5;
+  double total_amount = 6;
+  map<string, string> metadata = 7;
+  // появляется только после отправки
+  optional string tracking_number = 8;
+}
