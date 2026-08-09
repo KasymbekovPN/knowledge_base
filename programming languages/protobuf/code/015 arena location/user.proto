@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package myapp;
+
+import "address.proto";
+
+option optimize_for = SPEED;
+
+message User {
+  enum Status {
+    STATUS_UNKNOWN = 0;
+    STATUS_ACTIVE = 1;
+    STATUS_SUSPEND = 2;
+    STATUS_DELETED = 3;
+  }
+  int32 id = 1;
+  string name = 2;
+  string email = 3;
+  bool is_verified = 4;
+  double balance = 5;
+  bytes avatar = 6;
+  Status status = 7;
+  repeated Address addresses = 8;
+  map<string, string> preferences = 9;
+
+  // ровно один способ связи должен быть указан
+  oneof contact_method {
+    string phone = 10;
+    string telegram_handle = 11;
+  }
+}

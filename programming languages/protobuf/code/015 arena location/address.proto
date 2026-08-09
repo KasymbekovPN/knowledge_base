@@ -1,0 +1,14 @@
+syntax = "proto3";
+
+package myapp;
+
+option optimize_for = SPEED;
+
+message Address {
+  string street = 1;
+  string city = 2;
+  string postal_code = 3;
+  string country = 4;
+  // не у всех адресов есть квартира/офис
+  optional string apartment = 5;
+}

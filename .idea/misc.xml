@@ -3,7 +3,7 @@
   <component name="CMakePythonSetting">
     <option name="pythonIntegrationState" value="YES" />
   </component>
-  <component name="CMakeWorkspace" PROJECT_DIR="$PROJECT_DIR$/programming languages/protobuf/code/011 wire format more">
+  <component name="CMakeWorkspace" PROJECT_DIR="$PROJECT_DIR$/programming languages/protobuf/code/021 organization of proto-files">
     <contentRoot DIR="$PROJECT_DIR$" />
   </component>
   <component name="WestSettings">{}</component>

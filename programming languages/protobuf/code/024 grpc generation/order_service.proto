@@ -1,0 +1,41 @@
+syntax = "proto3";
+package myapp;
+
+// Сообщения для примера — минимальные, специально под демонстрацию service
+message OrderRequest {
+  int64 order_id = 1;
+}
+
+message OrderResponse {
+  int64  order_id = 1;
+  string status = 2;
+}
+
+message OrderUpdate {
+  int64 order_id = 1;
+  string field = 2;
+  string value = 3;
+}
+
+message Ack {
+  bool ok = 1;
+}
+
+service OrderService {
+  // 1. Unary — один запрос, один ответ. Самый частый вид RPC,
+  //    ведёт себя как обычный вызов функции по сети.
+  rpc GetOrder(OrderRequest) returns (OrderResponse);
+
+  // 2. Server streaming — один запрос, СЕРВЕР шлёт поток ответов.
+  //    Клиент запросил один раз, сервер отдаёт данные порциями
+  //    (например, историю статусов заказа).
+  rpc WatchOrderStatus(OrderRequest) returns (stream OrderResponse);
+
+  // 3. Client streaming — КЛИЕНТ шлёт поток запросов, сервер отвечает один раз
+  //    в конце (например, серия обновлений полей заказа, применяются пачкой).
+  rpc BatchUpdateOrder(stream OrderUpdate) returns (Ack);
+
+  // 4. Bidi (двунаправленный) streaming — оба потока независимы,
+  //    клиент и сервер шлют сообщения в любом порядке по одному соединению.
+  rpc SyncOrders(stream OrderUpdate) returns (stream OrderResponse);
+}
