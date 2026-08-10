@@ -4,163 +4,335 @@ tags:
 ---
 [[programming languages/protobuf/_|<=]]
 
-
-
-
----
-
-**`grpc::Server` + `ServerBuilder` — поднятие сервера**
-
-```cpp
-OrderServiceImpl service;
-ServerBuilder builder;
-builder.AddListeningPort(address, grpc::InsecureServerCredentials());
-builder.RegisterService(&service);
-std::unique_ptr<Server> server = builder.BuildAndStart();
-server->Wait();  // блокирует текущий поток до вызова server->Shutdown()
+### vcpkg.json
+```json
+{
+  "name": "grpc-cpp-demo",
+  "version": "1.0.0",
+  "dependencies": [
+    "grpc",
+    "protobuf"
+  ]
+}
 ```
 
-`ServerBuilder` — паттерн builder: сначала настраиваешь (порт, credentials, зарегистрированные сервисы, опционально — thread pool, лимиты сообщений), потом `BuildAndStart()` создаёт готовый `grpc::Server` и сразу начинает слушать порт. `Wait()` — синхронный вызов, блокирует поток (поэтому в демо сервер запущен в отдельном `std::thread` — иначе `main()` никогда бы не дошёл до кода клиента). В выводе видно: `[сервер] слушает на 127.0.0.1:50061` — сервер реально забиндил порт и принял соединение от клиента в этом же процессе.
+### CMakeLists.txt
+```cmake
+cmake_minimum_required(VERSION 4.4.2)
+project(grpc_order_service CXX)
 
-`InsecureServerCredentials()` — без TLS, только для локальной разработки/учебных целей; в проде — `SslServerCredentials()` с сертификатами.
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-**`Stub` — клиентская сторона**
+# С vcpkg (см. vcpkg.json — dependencies: grpc, protobuf) оба пакета
+# ставят свои CMake config-файлы, поэтому используем CONFIG-режим,
+# а не module-режим (find_package(Protobuf) без CONFIG).
+find_package(Protobuf CONFIG REQUIRED)
+find_package(gRPC CONFIG REQUIRED)
 
-```cpp
-auto channel = grpc::CreateChannel(address, grpc::InsecureChannelCredentials());
-std::unique_ptr<OrderService::Stub> stub = OrderService::NewStub(channel);
+set(PROTO_FILE ${CMAKE_CURRENT_SOURCE_DIR}/order_service.proto)
+set(GENERATED_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
+file(MAKE_DIRECTORY ${GENERATED_DIR})
+
+set(GENERATED_SRCS
+        ${GENERATED_DIR}/order_service.pb.cc
+        ${GENERATED_DIR}/order_service.pb.h
+        ${GENERATED_DIR}/order_service.grpc.pb.cc
+        ${GENERATED_DIR}/order_service.grpc.pb.h
+)
+
+# protobuf_generate() из FindProtobuf.cmake не умеет одновременно cpp_out +
+# grpc_out с внешним плагином, поэтому кодогенерацию делаем вручную —
+# ровно то же самое мы уже проверяли на связке FetchContent + protobuf::protoc.
+add_custom_command(
+        OUTPUT ${GENERATED_SRCS}
+        COMMAND protobuf::protoc
+        ARGS --cpp_out=${GENERATED_DIR}
+        --grpc_out=${GENERATED_DIR}
+        --plugin=protoc-gen-grpc=$<TARGET_FILE:gRPC::grpc_cpp_plugin>
+        -I ${CMAKE_CURRENT_SOURCE_DIR}
+        ${PROTO_FILE}
+        DEPENDS ${PROTO_FILE} protobuf::protoc gRPC::grpc_cpp_plugin
+        COMMENT "Generation *.pb.* and *.grpc.pb.* from order_service.proto"
+        VERBATIM
+)
+
+add_library(order_proto_grpc OBJECT ${GENERATED_SRCS})
+target_include_directories(order_proto_grpc PUBLIC ${GENERATED_DIR})
+target_link_libraries(order_proto_grpc PUBLIC protobuf::libprotobuf gRPC::grpc++)
+
+add_executable(demo_grpc_sync main.cpp)
+target_link_libraries(demo_grpc_sync PRIVATE order_proto_grpc)
+
 ```
 
-`Channel` — соединение с сервером (может обслуживать много RPC-вызовов параллельно, переиспользуется). `Stub` — сгенерированный клиентский класс с методом на каждый `rpc` из `.proto` (`stub->GetOrder(...)`, `stub->WatchOrderStatus(...)` и т.д.) — вызов выглядит как обычная функция, а внутри превращается в сетевой запрос.
-
-**`ClientContext` — метаданные и управление одним вызовом**
-
-```cpp
-ClientContext context;
-Status status = stub->GetOrder(&context, req, &resp);
+### CMakePresets.json
+```json
+{
+    "version": 6,
+    "configurePresets": [
+        {
+            "name": "base",
+            "hidden": true,
+            "generator": "Visual Studio 18 2026",
+            "architecture": {
+                "value": "x64",
+                "strategy": "set"
+            },
+            "binaryDir": "${sourceDir}/build/${presetName}",
+            "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+            "cacheVariables": {
+                "VCPKG_TARGET_TRIPLET": "x64-windows-static-md"
+            }
+        },
+        {
+            "name": "debug",
+            "inherits": "base"
+        },
+        {
+            "name": "release",
+            "inherits": "base"
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "debug",
+            "configurePreset": "debug",
+            "configuration": "Debug"
+        },
+        {
+            "name": "release",
+            "configurePreset": "release",
+            "configuration": "Release"
+        }
+    ]
+}
 ```
 
-Новый `ClientContext` создаётся **на каждый отдельный RPC-вызов** (не переиспользуется между вызовами — в демо видно 4 отдельных `ClientContext` для 4 разных вызовов). Через него настраиваются deadline (`context.set_deadline(...)`), метаданные запроса (auth-токены, трейсинг), отмена вызова (`context.TryCancel()`). Возвращаемый `Status` — результат вызова: `status.ok()` (в выводе везде `ok=1`), либо код ошибки + сообщение при неуспехе.
+### order_service.proto
+```Protobuf
+syntax = "proto3";
+package myapp;
 
-**Как выглядят синхронные вызовы по типам (из реально выполнившегося кода)**
+// Сообщения для примера — минимальные, специально под демонстрацию service
+message OrderRequest {
+  int64 order_id = 1;
+}
 
-Unary — просто вызов с указателем на ответ:
+message OrderResponse {
+  int64  order_id = 1;
+  string status = 2;
+}
 
-```cpp
-Status status = stub->GetOrder(&context, req, &resp);
+message OrderUpdate {
+  int64 order_id = 1;
+  string field = 2;
+  string value = 3;
+}
+
+message Ack {
+  bool ok = 1;
+}
+
+service OrderService {
+  // 1. Unary — один запрос, один ответ. Самый частый вид RPC,
+  //    ведёт себя как обычный вызов функции по сети.
+  rpc GetOrder(OrderRequest) returns (OrderResponse);
+
+  // 2. Server streaming — один запрос, СЕРВЕР шлёт поток ответов.
+  //    Клиент запросил один раз, сервер отдаёт данные порциями
+  //    (например, историю статусов заказа).
+  rpc WatchOrderStatus(OrderRequest) returns (stream OrderResponse);
+
+  // 3. Client streaming — КЛИЕНТ шлёт поток запросов, сервер отвечает один раз
+  //    в конце (например, серия обновлений полей заказа, применяются пачкой).
+  rpc BatchUpdateOrder(stream OrderUpdate) returns (Ack);
+
+  // 4. Bidi (двунаправленный) streaming — оба потока независимы,
+  //    клиент и сервер шлют сообщения в любом порядке по одному соединению.
+  rpc SyncOrders(stream OrderUpdate) returns (stream OrderResponse);
+}
+
 ```
 
-Server streaming — `Stub` возвращает `ClientReader`, читаем в цикле:
-
+### main.cpp
 ```cpp
-auto reader = stub->WatchOrderStatus(&context, req);
-while (reader->Read(&resp)) { ... }
-Status status = reader->Finish();  // Finish() ОБЯЗАТЕЛЕН — иначе utечка/зависание
+#include <chrono>
+#include <iostream>
+#include <format>
+#include <memory>
+#include <thread>
+#include <grpcpp/grpcpp.h>
+#include "order_service.grpc.pb.h"
+
+namespace {
+    // ===================== СЕРВЕР =====================
+    // Реализуем Service — базовый класс уже даёт дефолтную реализацию
+    // (UNIMPLEMENTED) для всех методов, переопределяем только нужные.
+    class OrderServiceImpl: public myapp::OrderService::Service {
+        grpc::Status GetOrder(grpc::ServerContext *context,
+                              const myapp::OrderRequest *request,
+                              myapp::OrderResponse *response) override {
+
+            response->set_order_id(request->order_id());
+            response->set_status("PAID");
+
+            return grpc::Status::OK;
+        }
+
+        grpc::Status WatchOrderStatus(grpc::ServerContext *context,
+                                      const myapp::OrderRequest *request,
+                                      grpc::ServerWriter<myapp::OrderResponse> *writer) override {
+            for (const char* statuses[] = {"PENDING", "PAID", "SHIPPED", "DELIVERED"};
+                const char* s: statuses) {
+                myapp::OrderResponse resp;
+                resp.set_order_id(request->order_id());
+                resp.set_status(s);
+                // сервер сам решает, сколько раз писать в поток
+                writer->Write(resp);
+            }
+
+            return grpc::Status::OK;
+        }
+
+        grpc::Status BatchUpdateOrder(grpc::ServerContext *context,
+                                      grpc::ServerReader<myapp::OrderUpdate> *reader,
+                                      myapp::Ack *response) override {
+            myapp::OrderUpdate update;
+            int count{};
+            // читаем, пока клиент не завершит поток
+            while (reader->Read(&update)) {
+                ++count;
+                std::cout << std::format("  [server] updating received #{}: = {}\n",
+                    update.field(),
+                    update.value());
+            }
+            response->set_ok(count > 0);
+
+            return grpc::Status::OK;
+        }
+
+        grpc::Status SyncOrders(grpc::ServerContext *context,
+                                grpc::ServerReaderWriter<myapp::OrderResponse, myapp::OrderUpdate> *stream) override {
+            myapp::OrderUpdate update;
+            // читаем один запрос клиента...
+            while (stream->Read(&update)) {
+                myapp::OrderResponse resp;
+                resp.set_order_id(update.order_id());
+                resp.set_status(std::format("ACK:{}", update.field()));
+                stream->Write(resp); // ...и сразу отвечаем — в рамках одного соединения
+            }
+
+            return grpc::Status::OK;
+        }
+    };
+
+    void runServer(std::unique_ptr<grpc::Server>* out_server, const std::string& address) {
+        OrderServiceImpl service;
+        grpc::ServerBuilder builder;
+        builder.AddListeningPort(address, grpc::InsecureServerCredentials());
+        builder.RegisterService(&service);
+        *out_server = builder.BuildAndStart();
+        std::cout << std::format("  [server] listening to {}\n", address);
+        (*out_server)->Wait();  // блокирует поток до Shutdown()
+    }
+
+    // ===================== КЛИЕНТ =====================
+    void runClient(const std::string& address) {
+        auto channel{grpc::CreateChannel(address, grpc::InsecureChannelCredentials())};
+        std::unique_ptr<myapp::OrderService::Stub> stub{myapp::OrderService::NewStub(channel)};
+
+        // --- 1. Unary ---
+        {
+            grpc::ClientContext context;
+            myapp::OrderRequest req;
+            req.set_order_id(42);
+            myapp::OrderResponse resp;
+            const grpc::Status status{stub->GetOrder(&context, req, &resp)};
+            std::cout << std::format("\n  [client] Unary GetOrder: ok= {}, status= {}\n",
+                status.ok(),
+                resp.status());
+        }
+
+        // --- 2. Server streaming ---
+        {
+            grpc::ClientContext context;
+            myapp::OrderRequest req;
+            req.set_order_id(42);
+            std::unique_ptr<grpc::ClientReader<myapp::OrderResponse>> reader{
+                stub->WatchOrderStatus(&context, req)
+            };
+            std::cout << "[client] Server streaming WatchOrderStatus:\n";
+            myapp::OrderResponse resp;
+            while (reader->Read(&resp)) {
+                std::cout << std::format(" <- {}\n", resp.status());
+            }
+            std::cout << std::format("  Finish ok= {}\n", reader->Finish().ok());
+        }
+
+        // --- 3. Client streaming ---
+        {
+            grpc::ClientContext context;
+            myapp::Ack ack;
+            std::unique_ptr<grpc::ClientWriter<myapp::OrderUpdate>> writer{
+                stub->BatchUpdateOrder(&context, &ack)
+            };
+            std::cout << "[client] Client streaming BatchUpdateOrder:\n";
+            for (const std::string& field: {"priority", "note"}) {
+                myapp::OrderUpdate u;
+                u.set_order_id(42);
+                u.set_field(field);
+                u.set_value("x");
+                writer->Write(u);
+                std::cout << std::format("  -> sent: {}\n", field);
+            }
+
+            writer->WritesDone();
+            //     Status status = writer->Finish();
+            std::cout << std::format("  Finish ok= {}, ack.ok()= {}\n",
+                writer->Finish().ok(),
+                ack.ok());
+        }
+
+        // --- 4. Bidi streaming ---
+        {
+            grpc::ClientContext context;
+            std::unique_ptr<grpc::ClientReaderWriter<myapp::OrderUpdate, myapp::OrderResponse>> stream{
+                stub->SyncOrders(&context)
+            };
+            std::cout << "[client] Bidi streaming SyncOrders:\n";
+            for (const std::string& field: {"color", "size"}) {
+                myapp::OrderUpdate u;
+                u.set_order_id(42);
+                u.set_field(field);
+                stream->Write(u);
+                myapp::OrderResponse resp;
+                // синхронный ping-pong: пишем и сразу читаем ответ
+                stream->Read(&resp);
+                std::cout << std::format(" <-> {} => {}\n", field, resp.status());
+            }
+
+            stream->WritesDone();
+            std::cout << std::format("  Finish ok= {}\n", stream->Finish().ok());
+        }
+    }
+
+}
+
+int main() {
+    const std::string address{"127.0.0.1:50061"};
+    std::unique_ptr<grpc::Server> server;
+
+    std::thread server_thread{[&]() { runServer(&server, address); }};
+    std::this_thread::sleep_for(std::chrono::milliseconds(300));
+
+    runClient(address);
+
+    server->Shutdown();
+    server_thread.join();
+    std::cout << "\n[server] stopped\n";
+
+    return 0;
+}
+
 ```
-
-Вывод показывает все 4 статуса (`PENDING`→`DELIVERED`), пришедшие по одному сетевому соединению.
-
-Client streaming — `Stub` возвращает `ClientWriter`, пишем, потом явно завершаем поток:
-
-```cpp
-auto writer = stub->BatchUpdateOrder(&context, &ack);
-writer->Write(u);       // можно вызывать много раз
-writer->WritesDone();   // сигнал серверу "я закончил слать"
-Status status = writer->Finish();
-```
-
-Сервер в выводе получил оба обновления (`#1`, `#2`) только после того, как весь клиентский поток был вычитан.
-
-Bidi streaming — `ClientReaderWriter`, пишем и читаем в любом порядке (в демо — синхронный ping-pong: пишем, сразу читаем ответ на то же сообщение):
-
-```cpp
-auto stream = stub->SyncOrders(&context);
-stream->Write(u);
-stream->Read(&resp);
-stream->WritesDone();
-Status status = stream->Finish();
-```
-
-**Практическое правило**
-
-Синхронный API прост в написании (линейный код, никаких callback'ов), но каждый вызов блокирует поток на время сетевого round-trip — для высоконагруженного сервера с тысячами одновременных соединений это означает поток на каждый активный запрос. Именно поэтому в проде часто переходят на асинхронный API (`CompletionQueue`) — тема следующего дня плана.
-
-Файл: `demo_grpc_sync.cc`.День 6 практически закрыт (осталась только формальная практика — реализовать unary RPC, что мы уже фактически сделали). Дальше — день 8: streaming подробнее и обработка ошибок/deadlines, либо день 9 (interceptors, TLS, reflection). Что дальше?
-
---- 
-
-
-## День 1: Основы protobuf и синтаксис .proto
-
-- [x] Установка: `protobuf-compiler` (protoc) и `libprotobuf-dev` через пакетный менеджер, либо сборка из исходников / vcpkg / Conan. (2026.08.06)
-- [x] Синтаксис proto3: `message`, скалярные типы (int32, int64, string, bytes, bool, float/double), номера полей и их роль в wire-формате. (2026.08.06)
-- [x] `repeated`, `optional`, `enum`, вложенные сообщения, `oneof`, `map<K,V>`. (2026.08.07)
-- [x] Импорты между .proto файлами, `package`, опции `option cc_enable_arenas`, `option optimize_for`. (2026.08.07)
-- [x] Практика: описать 3-4 связанных сообщения (например, `User`, `Address`, `Order`) с разными типами полей. (2026.08.07)
-
-## День 2: Генерация C++ кода и API сообщений
-
-- [x] Команда `protoc --cpp_out=. file.proto`, разбор сгенерированных `.pb.h` / `.pb.cc`. (2026.08.07)
-- [x] Сгенерированный класс: геттеры/сеттеры, `set_`, `mutable_`, `add_` (для repeated), `has_` (для optional/oneof). (2026.08.07)
-- [x] Сериализация: `SerializeToString`, `ParseFromString`, `SerializeToOstream`, `SerializeToArray`. (2026.08.07)
-- [x] Отладка: `DebugString()`, `Utf8DebugString()`. (2026.08.07)
-- [x] Практика: собрать простую CMake-программу, которая создаёт сообщение, сериализует в файл и читает обратно. (2026.08.07)
-
-## День 3: Wire-формат и эволюция схемы
-
-- [x] Как устроен бинарный формат: tag-length-value, varint-кодирование, zigzag для signed-типов. (2026.08.07)
-- [x] Совместимость: почему нельзя переиспользовать номера полей, как безопасно добавлять/удалять/переименовывать поля. (2026.08.07)
-- [x] `reserved` для полей и номеров, работа с неизвестными полями (unknown fields). (2026.08.07)
-- [x] Разница proto2 vs proto3 vs Protobuf Editions (2023+): `optional` в proto3, дефолтные значения, presence-семантика. (2026.08.07)
-
-## День 4: Производительность и память в C++
-
-- [x] Arena allocation: `google::protobuf::Arena`, зачем нужен, как ускоряет аллокации для больших графов сообщений. (2026.08.08)
-- [x] Move-семантика в сгенерированном коде, `Swap()`, избегание лишних копий. (2026.08.08)
-- [x] Reflection API (`google::protobuf::Message::GetReflection()`) — для generic-кода, работающего с произвольными типами сообщений. (2026.08.08)
-- [x] `Any`, `Timestamp`, `Duration`, `Struct`, `Empty` из `google/protobuf/*.proto` (well-known types). (2026.08.08)
-
-## День 5: Интеграция с CMake / сборочной системой
-
-- [x] `find_package(Protobuf REQUIRED)`, `protobuf_generate_cpp()`. (2026.08.09)
-- [x] Альтернатива: `FetchContent`/vcpkg для protobuf как зависимости. (2026.08.09)
-- [x] Организация .proto файлов в отдельной директории, генерация в build-директорию, инкрементальная пересборка. (2026.08.09)
-
-## День 6-7: gRPC — основы
-
-- [x] Установка `grpc` и `grpc_cpp_plugin`. (2026.08.09)
-- [x] Синтаксис сервисов в .proto: `service`, `rpc`, четыре типа вызовов (unary, server streaming, client streaming, bidi streaming). (2026.08.09)
-- [x] Генерация: `--grpc_out` и `--plugin=protoc-gen-grpc-cpp`. (2026.08.09)
-- [ ] Синхронный сервер/клиент на C++: `grpc::Server`, `ServerBuilder`, `ClientContext`, `Stub`.
-- [ ] Практика: реализовать unary RPC (например, `GetUser(UserRequest) -> UserResponse`), поднять сервер и клиент локально.
-
-## День 8: gRPC — streaming и асинхронность
-
-- [ ] Server streaming и client streaming на практике (например, стрим логов).
-- [ ] Bidi streaming.
-- [ ] Асинхронный API (`CompletionQueue`) — на уровне понимания, без глубокого погружения.
-- [ ] Обработка ошибок: `grpc::Status`, коды ошибок, deadlines/timeouts, retry-политики.
-- [ ] Практика: добавить server-streaming метод в сервис дня 6-7.
-
-## День 9: Продвинутые темы
-
-- [ ] Interceptors в gRPC (аутентификация, логирование).
-- [ ] TLS/mTLS для защищённых соединений.
-- [ ] Reflection service и `grpcurl` для отладки без клиента.
-- [ ] Версионирование API и backward-compatibility в реальных сервисах.
-- [ ] Практика: подключить `grpcurl` к своему серверу, включить reflection.
-
-## День 10: Итоговый проект
-
-- [ ]  Собрать небольшой сервис целиком: .proto-схема с 2-3 сообщениями и сервисом с unary + streaming методами, C++ сервер и клиент, CMake-сборка через vcpkg, базовая обработка ошибок и TLS (опционально).
-
-## Ресурсы
-
-- Официальная документация: protobuf.dev (Language Guide, C++ Generated Code, C++ API Reference).
-- grpc.io — C++ Quickstart и Basics tutorial.
-- Исходники примеров в репозиториях `protocolbuffers/protobuf` и `grpc/grpc` (директории `examples/`).
-- `google/protobuf/*.proto` в самом пакете protobuf — читать well-known types как эталонные примеры схем.
-
-## Проверка усвоения
-
-После каждого дня — короткая практическая задача (уже встроена в план). В конце: код-ревью своего итогового проекта на день 10 — проверить совместимость схемы, отсутствие утечек памяти (valgrind/asan), корректную обработку ошибок gRPC.

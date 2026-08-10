@@ -1,0 +1,26 @@
+syntax = "proto3";
+package myapp;
+
+message LogQuery {
+  string service_name = 1;
+}
+
+message LogEntry {
+  string level = 1;
+  string message = 2;
+}
+
+message UploadSummary {
+  int32 accepted_count = 1;
+  string status = 2;
+}
+
+service LogService {
+  // Server streaming: клиент один раз просит логи конкретного сервиса,
+  // сервер "живьём" отдаёт их по мере появления.
+  rpc StreamLogs(LogQuery) returns (stream LogEntry);
+
+  // Client streaming: клиент шлёт логи пачкой (по одному сообщению за раз),
+  // сервер копит и в конце присылает сводку.
+  rpc UploadLogs(stream LogEntry) returns (UploadSummary);
+}
