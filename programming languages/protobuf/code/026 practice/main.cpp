@@ -34,7 +34,7 @@ namespace {
     };
 
     void start_server() {
-        std::string address{"127.0.0.1:50070"};
+        std::string address{"127.0.0.1:5001"};
         UserServiceImpl service;
 
         grpc::ServerBuilder builder;
@@ -42,7 +42,7 @@ namespace {
         builder.RegisterService(&service);
 
         std::unique_ptr<grpc::Server> server(builder.BuildAndStart());
-        std::cout << std::format("[server] listening to {}, wait request...", address);
+        std::cout << std::format("[server] listening to {}, wait request...\n", address);
         // блокирует процесс — это отдельный, самостоятельный сервер
         server->Wait();
     }
@@ -74,7 +74,7 @@ namespace {
     }
 
     void start_client() {
-        std::string address("127.0.0.1:50070");
+        std::string address("127.0.0.1:5001");
         auto channel = grpc::CreateChannel(address, grpc::InsecureChannelCredentials());
         std::unique_ptr<myapp::UserService::Stub> stub = myapp::UserService::NewStub(channel);
 

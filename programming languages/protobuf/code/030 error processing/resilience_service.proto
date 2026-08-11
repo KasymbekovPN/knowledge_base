@@ -1,0 +1,18 @@
+syntax = "proto3";
+package myapp;
+
+message PingRequest {}
+message PingResponse {
+  string message = 1;
+}
+
+message SlowRequest {}
+message SlowResponse {}
+
+service ResilienceService {
+  // Первые 2 попытки — искусственно возвращает UNAVAILABLE (для демо retry).
+  rpc Ping(PingRequest) returns (PingResponse);
+
+  // Специально "спит" дольше, чем клиентский deadline (для демо таймаутов).
+  rpc SlowCall(SlowRequest) returns (SlowResponse);
+}
