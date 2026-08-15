@@ -1,0 +1,44 @@
+syntax = "proto3";
+package myapp.tasks.v1;
+
+// === Messages ===
+
+message Task {
+  int32 id = 1;
+  string title = 2;
+  string description = 3;
+  bool done = 4;
+}
+
+message CreateTaskRequest {
+  string title = 1;
+  string description = 2;
+}
+
+message TaskId {
+  int32 id = 1;
+}
+
+message ListTasksRequest {}
+
+message BulkCreateSummary {
+  int32 created_count = 1;
+}
+
+// === Service ===
+
+service TaskService {
+  // Unary: создать одну задачу
+  rpc CreateTask(CreateTaskRequest) returns (Task);
+
+  // Unary: получить задачу по id. Возвращает NOT_FOUND, если задачи нет —
+  // проверка обработки ошибок в клиенте.
+  rpc GetTask(TaskId) returns (Task);
+
+  // Server streaming: отдать все задачи по одной, по мере готовности.
+  rpc ListTasks(ListTasksRequest) returns (stream Task);
+
+  // Client streaming: массовое создание — клиент шлёт много задач подряд,
+  // сервер отвечает один раз со сводкой в конце.
+  rpc BulkCreateTasks(stream CreateTaskRequest) returns (BulkCreateSummary);
+}

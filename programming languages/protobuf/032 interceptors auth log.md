@@ -18,68 +18,324 @@ tags:
 
 ### CMakeLists.txt
 ```cmake
+cmake_minimum_required(VERSION 4.4.2)
+project(grpc_user_service CXX)
 
-```
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-### CMakePresets.json
-```json
-{
-    "version": 6,
-    "configurePresets": [
-        {
-            "name": "base",
-            "hidden": true,
-            "generator": "Visual Studio 18 2026",
-            "architecture": {
-                "value": "x64",
-                "strategy": "set"
-            },
-            "binaryDir": "${sourceDir}/build/${presetName}",
-            "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
-            "cacheVariables": {
-                "VCPKG_TARGET_TRIPLET": "x64-windows-static-md",
-                "VCPKG_APPLOCAL_DEPS": "OFF"
-            }
-        },
-        {
-            "name": "debug",
-            "inherits": "base"
-        },
-        {
-            "name": "release",
-            "inherits": "base"
-        }
-    ],
-    "buildPresets": [
-        {
-            "name": "debug",
-            "configurePreset": "debug",
-            "configuration": "Debug"
-        },
-        {
-            "name": "release",
-            "configurePreset": "release",
-            "configuration": "Release"
-        }
-    ]
-}
+# С vcpkg (см. vcpkg.json — dependencies: grpc, protobuf) оба пакета
+# ставят свои CMake config-файлы, поэтому используем CONFIG-режим,
+# а не module-режим (find_package(Protobuf) без CONFIG).
+find_package(Protobuf CONFIG REQUIRED)
+find_package(gRPC CONFIG REQUIRED)
+
+set(PROTO_FILE ${CMAKE_CURRENT_SOURCE_DIR}/user_service.proto)
+set(GENERATED_DIR ${CMAKE_CURRENT_BINARY_DIR}/generated)
+file(MAKE_DIRECTORY ${GENERATED_DIR})
+
+set(GENERATED_SRCS
+        ${GENERATED_DIR}/user_service.pb.cc
+        ${GENERATED_DIR}/user_service.pb.h
+        ${GENERATED_DIR}/user_service.grpc.pb.cc
+        ${GENERATED_DIR}/user_service.grpc.pb.h
+)
+
+# protobuf_generate() из FindProtobuf.cmake не умеет одновременно cpp_out +
+# grpc_out с внешним плагином, поэтому кодогенерацию делаем вручную —
+# ровно то же самое мы уже проверяли на связке FetchContent + protobuf::protoc.
+add_custom_command(
+        OUTPUT ${GENERATED_SRCS}
+        COMMAND protobuf::protoc
+        ARGS --cpp_out=${GENERATED_DIR}
+        --grpc_out=${GENERATED_DIR}
+        --plugin=protoc-gen-grpc=$<TARGET_FILE:gRPC::grpc_cpp_plugin>
+        -I ${CMAKE_CURRENT_SOURCE_DIR}
+        ${PROTO_FILE}
+        DEPENDS ${PROTO_FILE} protobuf::protoc gRPC::grpc_cpp_plugin
+        COMMENT "Generation *.pb.* and *.grpc.pb.* from user_service.proto"
+        VERBATIM
+)
+
+add_library(user_proto_grpc OBJECT ${GENERATED_SRCS})
+target_include_directories(user_proto_grpc PUBLIC ${GENERATED_DIR})
+target_link_libraries(user_proto_grpc PUBLIC protobuf::libprotobuf gRPC::grpc++)
+
+add_executable(demo main.cpp)
+target_link_libraries(demo PRIVATE user_proto_grpc)
+
 ```
 
 ### user_service.proto
 ```protobuf
+syntax = "proto3";
+package myapp;
+
+message UserRequest {
+  int32 user_id = 1;
+}
+
+message UserResponse {
+  int32 user_id = 1;
+  string name = 2;
+  string email = 3;
+}
+
+message ListUsersRequest {}
+
+service UserService {
+  rpc GetUser(UserRequest) returns (UserResponse);
+
+  // Новый server-streaming метод: один запрос — сервер отдаёт всех
+  // пользователей по одному, по мере готовности, а не единым списком.
+  rpc ListUsers(ListUsersRequest) returns (stream UserResponse);
+}
+
+```
+
+### interceptors.hpp
+```cpp
+#pragma once
+
+#include <chrono>
+#include <iostream>
+#include <format>
+#include <memory>
+#include <string>
+
+#include <grpcpp/grpcpp.h>
+#include <grpcpp/support/client_interceptor.h>
+#include <grpcpp/support/server_interceptor.h>
+
+
+static const std::string TOKEN{"Bearer secret-token-123"};
+static const std::string KEY{"authorization"};
+
+
+// ===================== КЛИЕНТСКИЙ ИНТЕРЦЕПТОР =====================
+// Добавляет auth-токен в исходящие метаданные КАЖДОГО вызова и логирует
+// имя метода + время выполнения — без единой строчки этого кода в
+// самих местах вызова stub->Method(...).
+class ClientAuthLoggingInterceptor: public grpc::experimental::Interceptor {
+public:
+    explicit ClientAuthLoggingInterceptor(grpc::experimental::ClientRpcInfo* info):
+        info_{info} {}
+
+    void Intercept(grpc::experimental::InterceptorBatchMethods *methods) override {
+        if (methods->QueryInterceptionHookPoint(
+            grpc::experimental::InterceptionHookPoints::PRE_SEND_INITIAL_METADATA)) {
+            start_ = std::chrono::steady_clock::now();
+            auto* metadata{methods->GetSendInitialMetadata()};
+            metadata->insert({KEY, TOKEN});
+            std::cout << std::format("[client-interceptor] -> {}: added auth-token\n", info_->method());
+        }
+
+        if (methods->QueryInterceptionHookPoint(
+            grpc::experimental::InterceptionHookPoints::POST_RECV_STATUS)) {
+            auto elapsed{std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - start_).count()};
+            grpc::Status* status{methods->GetRecvStatus()};
+            std::cout << std::format("[client-interceptor] <- {}: completed in {} ms, ok= {} \n]",
+                info_->method(), elapsed, status->ok());
+        }
+
+        // обязательно — иначе RPC зависнет
+        methods->Proceed();
+    }
+
+private:
+    grpc::experimental::ClientRpcInfo* info_{nullptr};
+    std::chrono::steady_clock::time_point start_;
+};
+
+class ClientAuthLoggingInterceptorFactory: public grpc::experimental::ClientInterceptorFactoryInterface {
+public:
+    grpc::experimental::Interceptor * CreateClientInterceptor(grpc::experimental::ClientRpcInfo *info) override {
+        return new ClientAuthLoggingInterceptor(info);
+    }
+};
+
+// ===================== СЕРВЕРНЫЙ ИНТЕРЦЕПТОР =====================
+// Логирует каждый входящий вызов и проверяет auth-токен. Если токена нет
+// или он неверный — подменяет исходящий статус на UNAUTHENTICATED.
+class ServerAuthLoggingInterceptor: public grpc::experimental::Interceptor {
+public:
+    explicit ServerAuthLoggingInterceptor(grpc::experimental::ServerRpcInfo *info)
+        : info_{info} {
+    }
+
+    void Intercept(grpc::experimental::InterceptorBatchMethods *methods) override {
+        if (methods->QueryInterceptionHookPoint(
+            grpc::experimental::InterceptionHookPoints::POST_RECV_INITIAL_METADATA)) {
+            auto* metadata = methods->GetRecvInitialMetadata();
+            if (const auto it = metadata->find(KEY);
+                it != metadata->end()) {
+                token_ = std::string(it->second.data(), it->second.length());
+            }
+            std::cout << std::format("[server-interceptor] <- {}: token gotten '{}'\n",
+                info_->method(),
+                (token_.empty() ? "(empty)" : token_));
+        }
+
+        if (methods->QueryInterceptionHookPoint(
+            grpc::experimental::InterceptionHookPoints::PRE_SEND_STATUS)) {
+            if (token_ != TOKEN) {
+                std::cout << std::format("[server-interceptor] -> {}: token is invalid/missing,"
+                    " change status to UNAUTHENTICATED\n",
+                    info_->method());
+                methods->ModifySendStatus(grpc::Status{
+                    grpc::StatusCode::UNAUTHENTICATED,
+                    "invalid or missing token"
+                });
+            } else {
+                std::cout << std::format("[server-interceptor] -> {}: token is valid\n", info_->method());
+            }
+        }
+
+        // обязательно — иначе RPC зависнет
+        methods->Proceed();
+    }
+
+private:
+    grpc::experimental::ServerRpcInfo *info_{nullptr};
+    std::string token_;
+};
+
+class ServerAuthLoggingInterceptorFactory: public grpc::experimental::ServerInterceptorFactoryInterface {
+public:
+    grpc::experimental::Interceptor * CreateServerInterceptor(grpc::experimental::ServerRpcInfo *info) override {
+        return new ServerAuthLoggingInterceptor(info);
+    }
+};
 
 ```
 
 ### main.cpp
 ```cpp
+#include <iostream>
+#include <format>
+#include <memory>
+#include <string>
 
+#include <grpcpp/grpcpp.h>
+
+#include "user_service.grpc.pb.h"
+#include "interceptors.hpp"
+
+static const std::string ADDRESS{"127.0.0.1:5000"};
+
+namespace server_with_interceptor {
+
+    class UserServiceImpl final: public myapp::UserService::Service {
+    public:
+        grpc::Status GetUser(grpc::ServerContext *context, const myapp::UserRequest *request,
+            myapp::UserResponse *response) override {
+            // Обрати внимание: сама бизнес-логика ничего не знает про auth —
+            // проверка токена целиком вынесена в interceptor.
+            std::cout << std::format("[handler] GetUser(user_id= {})\n", request->user_id());
+            response->set_user_id(1);
+            response->set_name("Alive");
+            response->set_email("alice@example.com");
+
+            return grpc::Status::OK;
+        }
+
+        grpc::Status ListUsers(grpc::ServerContext *context, const myapp::ListUsersRequest *request,
+            grpc::ServerWriter<myapp::UserResponse> *writer) override {
+            return grpc::Status::OK;
+        }
+    };
+
+    void start() {
+        UserServiceImpl service;
+
+        grpc::ServerBuilder builder;
+        builder.AddListeningPort(ADDRESS, grpc::InsecureServerCredentials());
+        builder.RegisterService(&service);
+
+        std::vector<std::unique_ptr<grpc::experimental::ServerInterceptorFactoryInterface>> creators;
+        creators.push_back(std::make_unique<ServerAuthLoggingInterceptorFactory>());
+        builder.experimental().SetInterceptorCreators(std::move(creators));
+
+        std::unique_ptr<grpc::Server> server{builder.BuildAndStart()};
+        std::cout << std::format("[server] listen to {} (with auth-interceptor)\n", ADDRESS);
+        server->Wait();
+    }
+}
+
+namespace client_with_interceptor {
+
+    void start() {
+        std::vector<std::unique_ptr<grpc::experimental::ClientInterceptorFactoryInterface>> creators;
+        creators.push_back(std::make_unique<ClientAuthLoggingInterceptorFactory>());
+
+        const auto channel{grpc::experimental::CreateCustomChannelWithInterceptors(
+            ADDRESS,
+            grpc::InsecureChannelCredentials(),
+            grpc::ChannelArguments(),
+            std::move(creators))};
+        const std::unique_ptr<myapp::UserService::Stub> stub{myapp::UserService::NewStub(channel)};
+
+        // Вызов выглядит как обычно — ни намёка на auth-логику здесь нет,
+        // весь auth/логирование прилетает "снаружи" через interceptor.
+        myapp::UserRequest request;
+        request.set_user_id(1);
+        myapp::UserResponse response;
+        grpc::ClientContext context;
+
+        std::cout << "[client] calling GetUser(...)\n";
+        const auto status = stub->GetUser(&context, request, &response);
+
+        std::cout << std::format("[client] status.ok() = {}, ", status.ok());
+        if (status.ok()) {
+            std::cout << std::format("name= {}", response.name());
+        } else {
+            std::cout << std::format("error= {}", status.error_message());
+        }
+        std::cout << '\n';
+    }
+}
+
+namespace client_without_interceptor {
+
+    void start() {
+        // Обычный канал БЕЗ клиентского интерцептора — значит, без auth-токена.
+        const auto channel{grpc::CreateChannel(
+            ADDRESS,
+            grpc::InsecureChannelCredentials())};
+        std::unique_ptr<myapp::UserService::Stub> stub{myapp::UserService::NewStub(channel)};
+
+        myapp::UserRequest request;
+        request.set_user_id(1);
+        myapp::UserResponse response;
+        grpc::ClientContext context;
+
+        std::cout << "[client without token] calling GetUser(...)\n";
+        const auto status = stub->GetUser(&context, request, &response);
+
+        std::cout << std::format("[client without token] status.ok()= {}, ", status.ok());
+        if (status.ok()) {
+            std::cout << std::format("name= {}", response.name());
+        } else {
+            std::cout << std::format("code= {}, error= {}",
+                static_cast<int>(status.error_code()),
+                status.error_message());
+        }
+        std::cout << "\n";
+    }
+
+}
+
+int main(const int argc, char *argv[]) {
+    if (const std::string START_KIND{argc > 1 ? argv[1] : ""};
+        START_KIND == "server") server_with_interceptor::start();
+    else if (START_KIND == "client-i") client_with_interceptor::start();
+    else if (START_KIND == "client") client_without_interceptor::start();
+    else std::cout << "BAD KIND\n";
+
+    return 0;
+}
 ```
-
-
----
-
-
-
 
 **Клиентский interceptor — добавление токена + логирование "снаружи"**
 
@@ -134,84 +390,3 @@ builder.experimental().SetInterceptorCreators(std::move(server_interceptor_creat
 ```
 
 Обрати внимание на `experimental` в названиях — в grpc 1.30 (версия из этой песочницы) interceptor API официально помечен экспериментальным (хотя стабилен и широко используется на практике); в более новых версиях gRPC он давно стабилизирован и живёт без этого namespace-префикса.
-
-
-
-
---- 
-
-
-## День 1: Основы protobuf и синтаксис .proto
-
-- [x] Установка: `protobuf-compiler` (protoc) и `libprotobuf-dev` через пакетный менеджер, либо сборка из исходников / vcpkg / Conan. (2026.08.06)
-- [x] Синтаксис proto3: `message`, скалярные типы (int32, int64, string, bytes, bool, float/double), номера полей и их роль в wire-формате. (2026.08.06)
-- [x] `repeated`, `optional`, `enum`, вложенные сообщения, `oneof`, `map<K,V>`. (2026.08.07)
-- [x] Импорты между .proto файлами, `package`, опции `option cc_enable_arenas`, `option optimize_for`. (2026.08.07)
-- [x] Практика: описать 3-4 связанных сообщения (например, `User`, `Address`, `Order`) с разными типами полей. (2026.08.07)
-
-## День 2: Генерация C++ кода и API сообщений
-
-- [x] Команда `protoc --cpp_out=. file.proto`, разбор сгенерированных `.pb.h` / `.pb.cc`. (2026.08.07)
-- [x] Сгенерированный класс: геттеры/сеттеры, `set_`, `mutable_`, `add_` (для repeated), `has_` (для optional/oneof). (2026.08.07)
-- [x] Сериализация: `SerializeToString`, `ParseFromString`, `SerializeToOstream`, `SerializeToArray`. (2026.08.07)
-- [x] Отладка: `DebugString()`, `Utf8DebugString()`. (2026.08.07)
-- [x] Практика: собрать простую CMake-программу, которая создаёт сообщение, сериализует в файл и читает обратно. (2026.08.07)
-
-## День 3: Wire-формат и эволюция схемы
-
-- [x] Как устроен бинарный формат: tag-length-value, varint-кодирование, zigzag для signed-типов. (2026.08.07)
-- [x] Совместимость: почему нельзя переиспользовать номера полей, как безопасно добавлять/удалять/переименовывать поля. (2026.08.07)
-- [x] `reserved` для полей и номеров, работа с неизвестными полями (unknown fields). (2026.08.07)
-- [x] Разница proto2 vs proto3 vs Protobuf Editions (2023+): `optional` в proto3, дефолтные значения, presence-семантика. (2026.08.07)
-
-## День 4: Производительность и память в C++
-
-- [x] Arena allocation: `google::protobuf::Arena`, зачем нужен, как ускоряет аллокации для больших графов сообщений. (2026.08.08)
-- [x] Move-семантика в сгенерированном коде, `Swap()`, избегание лишних копий. (2026.08.08)
-- [x] Reflection API (`google::protobuf::Message::GetReflection()`) — для generic-кода, работающего с произвольными типами сообщений. (2026.08.08)
-- [x] `Any`, `Timestamp`, `Duration`, `Struct`, `Empty` из `google/protobuf/*.proto` (well-known types). (2026.08.08)
-
-## День 5: Интеграция с CMake / сборочной системой
-
-- [x] `find_package(Protobuf REQUIRED)`, `protobuf_generate_cpp()`. (2026.08.09)
-- [x] Альтернатива: `FetchContent`/vcpkg для protobuf как зависимости. (2026.08.09)
-- [x] Организация .proto файлов в отдельной директории, генерация в build-директорию, инкрементальная пересборка. (2026.08.09)
-
-## День 6-7: gRPC — основы
-
-- [x] Установка `grpc` и `grpc_cpp_plugin`. (2026.08.09)
-- [x] Синтаксис сервисов в .proto: `service`, `rpc`, четыре типа вызовов (unary, server streaming, client streaming, bidi streaming). (2026.08.09)
-- [x] Генерация: `--grpc_out` и `--plugin=protoc-gen-grpc-cpp`. (2026.08.09)
-- [x] Синхронный сервер/клиент на C++: `grpc::Server`, `ServerBuilder`, `ClientContext`, `Stub`. (2026.08.10)
-- [x] Практика: реализовать unary RPC (например, `GetUser(UserRequest) -> UserResponse`), поднять сервер и клиент локально. (2026.08.10)
-
-## День 8: gRPC — streaming и асинхронность
-
-- [x] Server streaming и client streaming на практике (например, стрим логов). (2026.08.10)
-- [x] Bidi streaming. (2026.08.11)
-- [x] Асинхронный API (`CompletionQueue`) — на уровне понимания, без глубокого погружения. (2026.08.11)
-- [x] Обработка ошибок: `grpc::Status`, коды ошибок, deadlines/timeouts, retry-политики. (2026.08.11)
-- [x] Практика: добавить server-streaming метод. (2026.08.11)
-
-## День 9: Продвинутые темы
-
-- [ ] Interceptors в gRPC (аутентификация, логирование).
-- [ ] TLS/mTLS для защищённых соединений.
-- [ ] Reflection service и `grpcurl` для отладки без клиента.
-- [ ] Версионирование API и backward-compatibility в реальных сервисах.
-- [ ] Практика: подключить `grpcurl` к своему серверу, включить reflection.
-
-## День 10: Итоговый проект
-
-- [ ]  Собрать небольшой сервис целиком: .proto-схема с 2-3 сообщениями и сервисом с unary + streaming методами, C++ сервер и клиент, CMake-сборка через vcpkg, базовая обработка ошибок и TLS (опционально).
-
-## Ресурсы
-
-- Официальная документация: protobuf.dev (Language Guide, C++ Generated Code, C++ API Reference).
-- grpc.io — C++ Quickstart и Basics tutorial.
-- Исходники примеров в репозиториях `protocolbuffers/protobuf` и `grpc/grpc` (директории `examples/`).
-- `google/protobuf/*.proto` в самом пакете protobuf — читать well-known types как эталонные примеры схем.
-
-## Проверка усвоения
-
-После каждого дня — короткая практическая задача (уже встроена в план). В конце: код-ревью своего итогового проекта на день 10 — проверить совместимость схемы, отсутствие утечек памяти (valgrind/asan), корректную обработку ошибок gRPC.
