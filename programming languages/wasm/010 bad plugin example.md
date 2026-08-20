@@ -4,10 +4,176 @@ tags:
 ---
 [[programming languages/wasm/_|<=]]
 
+### vcpkg.json
+```json
+{
+    "name": "bad-host-demo",
+    "version": "1.0.0",
+    "builtin-baseline": "a7eda31dc16994fcaa8587982eb833a8695f1b6f",
+    "dependencies": []
+}
+
+```
+
+### CMakeLists.txt
+```cmake
+cmake_minimum_required(VERSION 4.4.2)
+project(bad_host_demo CXX)
+
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+include(FetchContent)
+
+set(WASMTIME_VERSION "v47.0.3")
+set(WASMTIME_ARCHIVE "wasmtime-${WASMTIME_VERSION}-x86_64-windows-c-api.zip")
+
+FetchContent_Declare(
+        wasmtime_c_api
+        URL "https://github.com/bytecodealliance/wasmtime/releases/download/${WASMTIME_VERSION}/${WASMTIME_ARCHIVE}"
+)
+FetchContent_MakeAvailable(wasmtime_c_api)
+
+# В архиве нет своего CMakeLists.txt -- это просто заголовки + готовая
+# библиотека, поэтому объявляем IMPORTED-таргет вручную. Дальше он
+# используется в проекте как обычная зависимость через target_link_libraries.
+# Windows-архив содержит только shared-вариант (wasmtime.dll + .dll.lib),
+# в отличие от Linux/macOS, где есть статическая libwasmtime.a.
+if(WIN32)
+    add_library(wasmtime SHARED IMPORTED)
+    set_target_properties(wasmtime PROPERTIES
+            IMPORTED_LOCATION "${wasmtime_c_api_SOURCE_DIR}/lib/wasmtime.dll"
+            IMPORTED_IMPLIB "${wasmtime_c_api_SOURCE_DIR}/lib/wasmtime.dll.lib"
+            INTERFACE_INCLUDE_DIRECTORIES "${wasmtime_c_api_SOURCE_DIR}/include"
+    )
+else()
+    add_library(wasmtime STATIC IMPORTED)
+    set_target_properties(wasmtime PROPERTIES
+            IMPORTED_LOCATION "${wasmtime_c_api_SOURCE_DIR}/lib/libwasmtime.a"
+            INTERFACE_INCLUDE_DIRECTORIES "${wasmtime_c_api_SOURCE_DIR}/include"
+    )
+endif()
+
+add_executable(host_bad_module host_bad_module.cpp)
+
+if(WIN32)
+    target_link_libraries(host_bad_module PRIVATE wasmtime)
+    add_custom_command(TARGET host_bad_module POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${wasmtime_c_api_SOURCE_DIR}/lib/wasmtime.dll"
+            "$<TARGET_FILE_DIR:host_bad_module>"
+    )
+else()
+    target_link_libraries(host_bad_module PRIVATE wasmtime pthread dl m)
+endif()
+
+```
+
+### bad_plugin.c
+```cpp
+/*
+
+& "C:\projects\wasi-sdk\wasi-sdk-33.0-x86_64-windows\bin\clang.exe" --% --target=wasm32-wasip1 -mexec-model=reactor -O2 -nostartfiles -Wl,--no-entry -Wl,--export=infinite_loop,--export=ping -o bad_plugin.wasm bad_plugin.c
+
+*/
+
+#include <stdint.h>
+
+// "Плохой" плагин: бесконечный цикл. volatile не даёт компилятору
+// оптимизировать пустой цикл в ничто -- это гарантированно реальное
+// бесконечное выполнение внутри WASM, а не мираж после -O2.
+__attribute__((export_name("infinite_loop")))
+void infinite_loop() {
+    volatile int counter = 0;
+    while (1) counter++;
+}
+
+// "Хороший" сосед в том же модуле -- вызовем его ПОСЛЕ того, как
+// оборвём infinite_loop, чтобы доказать: сам инстанс/раннее выполнение
+// не превратили процесс хоста в труп.
+__attribute__((export_name("ping")))
+int32_t ping() {
+    return 42;
+}
+
+```
+
+### host_bad_module.cpp
+```cpp
+// Хост, который намеренно скармливает себе "плохой" плагин с
+// бесконечным циклом -- и не падает благодаря топливному лимиту (fuel)
+// Wasmtime. Это последний пункт мини-проекта: доказать, что WASM даёт то,
+// чего dlopen() дать не может -- крашнутый/зависший плагин не роняет и
+// не подвешивает сам хост-процесс.
+
+#include <iostream>
+#include <format>
+#include <fstream>
+#include <string>
+#include <vector>
+
+#include "wasmtime.hh"
+
+namespace {
+    std::vector<uint8_t> read_wasm_file(const char* name) {
+        std::ifstream file{name, std::ios::binary};
+        return std::vector<uint8_t>{
+            std::istreambuf_iterator<char>(file),
+            std::istreambuf_iterator<char>(),
+        };
+    }
+}
 
 
+int main(int argc, char *argv[]) {
+    // 1) Включаем расход топлива на уровне Config -- без этого set_fuel
+    //    ниже просто вернёт ошибку "fuel is not configured".
+    wasmtime::Config config;
+    config.consume_fuel(true);
+    wasmtime::Engine engine{std::move(config)};
 
----
+    auto wasmBytes{read_wasm_file("bad_plugin.wasm")};
+    const wasmtime::Module module{wasmtime::Module::compile(engine, wasmBytes).unwrap()};
+
+    wasmtime::Store store{engine};
+    wasmtime::Instance instance{wasmtime::Instance::create(store, module, {}).unwrap()};
+
+    const auto infinite_loop_fn{std::get<wasmtime::Func>(*instance.get(store, "infinite_loop"))};
+    const auto ping_fn{std::get<wasmtime::Func>(*instance.get(store, "ping"))};
+
+    // 2) Даём этому конкретному вызову ограниченный бюджет "топлива" --
+    //    условных единиц выполнения WASM-инструкций. Без явного set_fuel
+    //    выполнение вообще не началось бы (0 топлива по умолчанию).
+    constexpr uint64_t FUEL_BUDGET{10'000'000};
+    store.context().set_fuel(FUEL_BUDGET).unwrap();
+    std::cout << std::format("Call infinite_loop with budget: {}\n", FUEL_BUDGET);
+
+    if (const auto result{infinite_loop_fn.call(store, {})}) {
+        // Сюда мы попасть не должны -- бесконечный цикл не может завершиться
+        // сам по себе.
+        std::cout << "Unexpected: calling is finished successfully!\n";
+    } else {
+        // А вот сюда -- обязаны. Wasmtime оборвал выполнение trap'ом, как
+        // только топливо кончилось, и вернул управление хосту как обычную
+        // ошибку, а не убил процесс.
+        std::cout << std::format("Plugin is stopped by runtime: '{}'\n",
+            result.err().message());
+    }
+
+    std::cout << "Host is alve\n";
+
+    // 3) Тот же Store, тот же Instance -- просто пополняем топливо и
+    //    вызываем СОСЕДНЮЮ функцию из ТОГО ЖЕ модуля. Если бы плагин
+    //    реально уронил процесс, до этой строчки мы бы не дошли вообще.
+    store.context().set_fuel(FUEL_BUDGET).unwrap();
+    auto ping_result{ping_fn.call(store, {})};
+    std::cout << std::format("Ping result: {}\n",
+        ping_result.unwrap()[0].i32());
+
+    return 0;
+}
+
+```
 
 ```
 Вызываю infinite_loop() с бюджетом 10000000 единиц топлива...
@@ -41,89 +207,3 @@ auto result = infiniteLoop.call(store, {});
 **Самое главное — строка после этого.** Тот же `Store`, тот же `Instance`, тот же WASM-модуль — хост просто доливает топлива и зовёт соседнюю функцию `ping()` из **того же самого** плагина, и получает `42`. Если бы «плохой» плагин реально уронил или подвесил процесс, до этой строчки код бы никогда не добрался — ни с `timeout`, ни без него.
 
 **Вот и ответ на вопрос, почему это невозможно с `dlopen`.** Если бы `infinite_loop()` была обычной функцией в `.so`, загруженной через `dlopen`+`dlsym`, вызов `func()` — это просто прыжок по указателю в общем адресном пространстве процесса. Ни у ОС, ни у вызывающего кода нет встроенного способа сказать «выполни не больше N инструкций и верни мне управление» — единственные грубые обходные пути: запускать плагин в отдельном потоке/процессе и убивать его снаружи по таймеру (ненадёжно и медленно — `pthread_cancel` на потоке, зависшем в CPU-цикле без safe cancellation point, может не сработать вообще), либо смириться с тем, что зависший плагин подвесил весь процесс. А если бы плагин не зациклился, а просто разыменовал плохой указатель — в `dlopen`-модели это сразу segfault всего процесса, потому что у него полный доступ к памяти хоста. С WASM у плагина физически нет способа тронуть память хоста (это мы уже разбирали в Дне 3), а зависание душится топливом на уровне рантайма, а не постфактум снаружи.Это закрывает последний открытый пункт мини-проекта (День 8) — сборка полностью работоспособна: изоляция плагинов от памяти хоста (День 3), встраивание рантайма (День 4), и вот теперь доказанная отказоустойчивость к зависшему/сломанному плагину. Дальше по плану остаются только опциональные темы — Component Model/WIT и обзор экосистемы (Extism мы уже неплохо покрыли по пути).
-
----
-
-### День 1 Что такое WASM на самом деле
-
-Цель: понять модель выполнения — модуль, стек-машина, линейная память, песочница — до того как трогать C++.
-
-- [x] Прочитать обзор спецификации на [webassembly.org](https://webassembly.org/) и раздел Concepts на [MDN](https://developer.mozilla.org/en-US/docs/WebAssembly) (2026.08.16)
-- [x] Установить `wasmtime` CLI и [WABT](https://github.com/WebAssembly/wabt) (даёт `wat2wasm`/`wasm2wat`/`wasm-objdump`) (2026.08.16)
-- [x] Написать вручную крошечный модуль на текстовом формате `.wat` (например, функция сложения двух чисел), скомпилировать в `.wasm` и запустить через `wasmtime run` (2026.08.16)
-- [x] Разобраться в разнице: линейная память (один плоский массив байт) vs адресное пространство обычного процесса — почему указатели гостя не совпадают с указателями хоста (2026.08.16)
-
-### День 2 Компиляция C/C++ в WASM
-
-Цель: получить первый рабочий .wasm из своего C++ кода двумя разными тулчейнами.
-
-- [x] Установить [wasi-sdk](https://github.com/WebAssembly/wasi-sdk) (clang с таргетом `wasm32-wasi`), скомпилировать простую C-функцию, запустить через `wasmtime` (2026.08.16)
-- [x] Установить [Emscripten](https://emscripten.org/docs/compiling/WebAssembly.html), скомпилировать тот же пример, сравнить: под что заточен каждый тулчейн (WASI/сервер vs браузер), размер бинарника (2026.08.17)
-- [x] Прочитать тред ["What is the difference between wasi-sdk and emscripten?"](https://github.com/WebAssembly/wasi-sdk/issues/222) — это прямо отвечает на вопрос «какой инструмент когда» (2026.08.17)
-- [x] Почему для плагинной системы (не для браузера) обычно нужен именно `wasi-sdk` / `wasm32-wasi`, а не Emscripten (2026.08.17)
-
-### День 3 Модель памяти и передача данных через границу
-
-Цель: понять, как из хоста передать/получить строку, буфер, структуру — это главный источник багов в плагинных системах на WASM.
-
-- [x] Разобрать паттерн «указатель + длина»: как хост записывает данные в память гостя и как экспортированные `malloc`/`free` дают гостю выделить буфер для хоста (2026.08.17)
-- [x] Написать вручную пример: C++ хост копирует строку в память WASM-модуля, вызывает функцию, читает результат обратно (2026.08.17)
-- [x] Посмотреть, как это решает готовая библиотека — polistrate-пример [Extism PDK](https://extism.org/docs/concepts/pdk) (не обязательно ставить, достаточно прочитать концепцию памяти) (2026.08.17)
-
-### День 4 Встраивание рантайма в C++ хост
-
-Цель: написать минимальный C++ host-процесс, который сам загружает и исполняет .wasm файл.
-
-- [x] Выбрать рантайм с C API: [Wasmtime C API](https://docs.wasmtime.dev/c-api/) (более активно развивается, из коробки sandboxing/fuel) или [WAMR](https://github.com/bytecodealliance/wasm-micro-runtime) (легче, C-native, хорош для embedded)  (2026.08.17)
-- [x] Написать C++ программу: загрузить `.wasm`, создать `Store`/`Instance`, найти экспортированную функцию по имени, вызвать её, получить результат (2026.08.17)
-- [ ] Прогнать «плохой» модуль (например, с бесконечным циклом) и убедиться, что хост не падает — это и есть главная причина использовать WASM вместо `dlopen`
-
-### День 5 Host functions — API хоста для плагина
-
-Цель: научиться давать плагину доступ к «внешнему миру» только через явно разрешённые функции.
-
-- [ ] Зарегистрировать в C++ хосте импортируемую функцию (например, `host_log(ptr, len)`) и вызвать её из кода плагина
-- [ ] Понять модель линковки импортов/экспортов: почему это безопаснее, чем то, что плагин через `dlopen` получает вообще всё адресное пространство процесса
-- [ ] Прочитать про реальный пример на проде — [Wasm-плагины в Apache Traffic Server](https://docs.trafficserver.apache.org/en/latest/admin-guide/plugins/wasm.en.html) или Envoy Wasm filters (поиск "envoy wasm filters")
-
-### День 6 Проектирование контракта плагина
-
-Цель: спроектировать собственный минимальный ABI плагина — то, что в реальном проекте станет "SDK для авторов плагинов".
-
-- [ ] Определить набор функций жизненного цикла плагина: `plugin_init`, `plugin_process`, `plugin_shutdown` (простой C ABI)
-- [ ] Продумать версионирование интерфейса (что происходит, если плагин собран под старую версию API хоста)
-- [ ] Прочитать статью ["Building Native Plugin Systems with WebAssembly Components"](https://tartanllama.xyz/posts/wasm-plugins/) (Sy Brand) — разбирает именно проблему безопасности/интерфейсов/бинарной совместимости при плагинах
-
-### День 7 Ресурсные лимиты и отказоустойчивость
-
-Цель: научиться ограничивать плагин по времени/памяти и красиво обрабатывать его сбои.
-
-- [ ] Изучить fuel-based и epoch-based прерывание выполнения в Wasmtime (защита от зависшего/злонамеренного плагина)
-- [ ] Настроить лимит на размер линейной памяти модуля
-- [ ] Обработать trap (паника внутри WASM) в C++ хосте так, чтобы это превращалось в обычную ошибку, а не крэш процесса
-
-### День 8 Мини-проект: рабочая плагинная система
-
-Цель: увидеть современный, типобезопасный способ описывать интерфейс плагина — это то, к чему сейчас идёт вся индустрия вместо ручного маршалинга.
-
-- [ ] C++ хост, который сканирует папку с `.wasm`-файлами и загружает их как плагины
-- [ ] 2–3 простых плагина на C (например, «преобразование текста»: upper-case, реверс строки, подсчёт слов), реализующих общий контракт из Дня 6
-- [ ] Один намеренно «сломанный» плагин (бесконечный цикл или паника) — хост должен корректно его изолировать и продолжить работу с остальными
-- [ ] Замерить время загрузки модуля и вызова функции — почувствовать порядок величины накладных расходов
-
-### День 9 Component Model и WIT — куда движется экосистема
-
-Цель: увидеть современный, типобезопасный способ описывать интерфейс плагина — это то, к чему сейчас идёт вся индустрия вместо ручного маршалинга.
-
-[ ] Прочитать официальный гайд Wasmtime ["An Application with Plugins"](https://docs.wasmtime.dev/wasip2-plugins.html) — эталонный пример плагинной системы на Component Model + WIT (хост на Rust, но архитектура универсальна)
-- [ ] Написать простой `.wit`-файл, описывающий интерфейс плагина (функции + типы), сгенерировать биндинги через [wit-bindgen](https://github.com/bytecodealliance/wit-bindgen) для C
-- [ ] Превратить обычный `.wasm`-модуль в компонент через [wasm-tools](https://github.com/bytecodealliance/wasm-tools)
-- [ ] Учесть нюанс: поддержка Component Model в C API Wasmtime/WAMR менее зрелая, чем в Rust — для реального проекта это стоит проверить на актуальном состоянии перед выбором
-
-### День 10 Обзор экосистемы: что не изобретать самому
-
-Цель: понимать, где заканчивается «изучение основ» и начинается «взять готовое решение».
-
-- [ ] Посмотреть на [Extism](https://extism.org/) — готовый фреймворк именно под «WASM как плагины», с SDK для C++ хоста и PDK для авторов плагинов на разных языках
-- [ ] Прочитать сравнение рантаймов [Wasmtime vs Wasmer vs WasmEdge (2026)](https://reintech.io/blog/wasmtime-vs-wasmer-vs-wasmedge-wasm-runtime-comparison-2026), чтобы понимать текущий ландшафт
-- [ ] Сформулировать для себя: для будущего реального проекта — писать маршалинг руками, взять Component Model/WIT, или взять Extism целиком

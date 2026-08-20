@@ -7,3 +7,4 @@
 )
 
 ;; wasmtime run --invoke add add.wasm 2 3
+;; wat2wasm add.wat -o add.wasm
