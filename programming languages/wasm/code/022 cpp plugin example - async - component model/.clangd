@@ -1,0 +1,11 @@
+If:
+  PathMatch: .*impl\.cpp
+
+CompileFlags:
+  Compiler: C:/projects/wasi-sdk/wasi-sdk-33.0-x86_64-windows/bin/clang++.exe
+  Add:
+    - --target=wasm32-wasip1
+    - --sysroot=C:/projects/wasi-sdk/wasi-sdk-33.0-x86_64-windows/share/wasi-sysroot
+    - -resource-dir=C:/projects/wasi-sdk/wasi-sdk-33.0-x86_64-windows/lib/clang/22
+    - -std=c++23
+    - -I.

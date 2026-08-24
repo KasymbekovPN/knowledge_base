@@ -1,0 +1,18 @@
+[package]
+name = "upper_rust"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+# cdylib, а не bin -- у библиотечного крейта нет fn main(), поэтому
+# итоговый .wasm получается reactor-модулем без _start (тот же смысл,
+# что -nostartfiles -Wl,--no-entry в сишных примерах этой сессии), а не
+# command-модулем.
+crate-type = ["cdylib"]
+
+[profile.release]
+# оптимизация по размеру -- типично для wasm-плагинов
+opt-level = "z"
+# без unwinding -- меньше кода, нет зависимостей на eh_personality
+panic = "abort"
+lto = true

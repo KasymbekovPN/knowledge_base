@@ -3,7 +3,7 @@
   <component name="CMakePythonSetting">
     <option name="pythonIntegrationState" value="YES" />
   </component>
-  <component name="CMakeWorkspace" PROJECT_DIR="$PROJECT_DIR$/programming languages/wasm/code/018 wit example">
+  <component name="CMakeWorkspace" PROJECT_DIR="$PROJECT_DIR$/programming languages/wasm/code/023 rust plugin example - wasm">
     <contentRoot DIR="$PROJECT_DIR$" />
   </component>
   <component name="WestSettings">{}</component>

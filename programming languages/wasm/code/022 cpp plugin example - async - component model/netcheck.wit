@@ -1,0 +1,27 @@
+// Вариант 2: тот же "ping" (на самом деле TCP-коннект -- см. пояснение
+// в финальном ответе про то, почему настоящий ICMP ping недоступен ни
+// в одном из вариантов WASI), но теперь гость САМ делает сеть, а не
+// зовёт хост -- потому что для world'ов, нацеленных на wasm32-wasip2,
+// wasi-libc реально объявляет и реализует socket()/connect() поверх
+// компонентного интерфейса wasi:sockets. boost::asio при этом всё
+// равно не используется -- он не собирается под этот таргет вообще
+// (см. объяснение ниже), поэтому реализация -- на голых POSIX-сокетах.
+
+// wit-bindgen c ./netcheck.wit --out-dir generated
+
+package example:netcheck@0.1.0;
+
+interface check {
+  variant check-error {
+    resolve-failed(string),
+    connect-failed(string),
+  }
+
+  // Пытается установить TCP-соединение с host:port и сразу его
+  // закрыть. При успехе возвращает время в миллисекундах.
+  tcp-ping: func(host: string, port: u16) -> result<f64, check-error>;
+}
+
+world netcheck-plugin {
+  export check;
+}
