@@ -1,0 +1,24 @@
+[package]
+name = "rust_component_plugin"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+# cdylib -- тот же смысл, что у upper_rust: библиотечный крейт без
+# fn main(), итоговый .wasm компилируется как компонент под
+# wasm32-wasip2 (аналог -mexec-model=reactor для C, только здесь это
+# делает сам компонентный ABI, а не флаги линковщика).
+crate-type = ["cdylib"]
+
+[dependencies]
+# Версия крейта specifically совпадает с версией wit-bindgen-cli
+# (0.60.0), которой в этой сессии сгенерирован generated/plugin.c для
+# Дня 9 -- макрос wit_bindgen::generate! ниже делает ровно то же самое,
+# что консольная команда `wit-bindgen rust`, но прямо на этапе cargo
+# build, без отдельного шага кодогенерации.
+wit-bindgen = "0.60.0"
+
+[profile.release]
+opt-level = "z"
+panic = "abort"
+lto = true

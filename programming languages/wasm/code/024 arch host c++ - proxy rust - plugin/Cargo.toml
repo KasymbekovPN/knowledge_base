@@ -1,0 +1,24 @@
+[package]
+name = "transform_proxy"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+# cdylib -- та же идея, что в wasm_proxy: наружу торчит только C ABI
+# (см. include/transform_proxy.h), C++-хост про wasmtime не знает вообще.
+crate-type = ["cdylib"]
+name = "transform_proxy"
+
+[dependencies]
+wasmtime = { version = "48.0.0", features = ["component-model"] }
+# Обрати внимание: в отличие от wasm_proxy (netcheck, wasi:sockets),
+# здесь НЕТ зависимости wasmtime-wasi. plugin_component.wasm (см.
+# `wasm-tools component wit`) не импортирует ничего -- ни WASI, ни
+# чего-либо ещё, значит и подключать WASI в линкер не нужно. Меньше
+# зависимостей, меньше поверхность атаки на плагин -- принцип наименьших
+# полномочий, а не "на всякий случай добавить всё".
+anyhow = "1.0.104"
+
+[profile.release]
+# обязательно, иначе catch_unwind на границе FFI бесполезен
+panic = "unwind"

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<module type="EMPTY_MODULE" version="4">
+  <component name="NewModuleRootManager">
+    <content url="file://$MODULE_DIR$">
+      <sourceFolder url="file://$MODULE_DIR$/code/001 entry point/000 simple/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/001 entry point/001 with return/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/001 entry point/002 explicit ret/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/001 entry point/003 args/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/002 free function/000 base without ret/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/002 free function/001 with ret/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/002 free function/002 modules/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/003 function as arg/000 closure/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/003 function as arg/001 fnmut example/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/003 function as arg/002 fnonce example/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/003 function as arg/003 arg as function pointer/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/003 function as arg/004 arg as impl fn/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/003 function as arg/005 dyn fn/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/003 function as arg/006 ret func/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/004 modifiers passing by value by ref/by value/src" isTestSource="false" />
+      <excludeFolder url="file://$MODULE_DIR$/code/001 entry point/000 simple/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/001 entry point/001 with return/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/001 entry point/002 explicit ret/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/001 entry point/003 args/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/002 free function/000 base without ret/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/002 free function/001 with ret/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/002 free function/002 modules/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/003 function as arg/000 closure/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/003 function as arg/001 fnmut example/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/003 function as arg/002 fnonce example/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/003 function as arg/003 arg as function pointer/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/003 function as arg/004 arg as impl fn/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/003 function as arg/005 dyn fn/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/003 function as arg/006 ret func/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/004 modifiers passing by value by ref/by value/target" />
+    </content>
+    <orderEntry type="inheritedJdk" />
+    <orderEntry type="sourceFolder" forTests="false" />
+  </component>
+</module>

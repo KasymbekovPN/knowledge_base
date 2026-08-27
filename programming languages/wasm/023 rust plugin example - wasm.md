@@ -18,93 +18,501 @@ cp target/wasm32-wasip1/release/upper_rust.wasm miniproject/plugins/
 
 и запустить `host_miniproject` (тот, что уже умеет `Linker::define_wasi()` — на всякий случай, я не могу проверить, тянет ли рантайм Rust какие-то WASI-импорты сам по себе, как это было с libc++ у C++-плагина, поэтому лучше подстраховаться тем же хостом, а не «голым» `Instance::create`).
 
----
+### vcpkg.json
+```json
+{
+    "name": "demo",
+    "version": "1.0.0",
+    "builtin-baseline": "a7eda31dc16994fcaa8587982eb833a8695f1b6f",
+    "dependencies": []
+}
 
-### День 1 Что такое WASM на самом деле
+```
 
-Цель: понять модель выполнения — модуль, стек-машина, линейная память, песочница — до того как трогать C++.
+### CMakeLists.txt
+```cmake
+cmake_minimum_required(VERSION 4.4.2)
+project(host CXX)
 
-- [x] Прочитать обзор спецификации на [webassembly.org](https://webassembly.org/) и раздел Concepts на [MDN](https://developer.mozilla.org/en-US/docs/WebAssembly) (2026.08.16)
-- [x] Установить `wasmtime` CLI и [WABT](https://github.com/WebAssembly/wabt) (даёт `wat2wasm`/`wasm2wat`/`wasm-objdump`) (2026.08.16)
-- [x] Написать вручную крошечный модуль на текстовом формате `.wat` (например, функция сложения двух чисел), скомпилировать в `.wasm` и запустить через `wasmtime run` (2026.08.16)
-- [x] Разобраться в разнице: линейная память (один плоский массив байт) vs адресное пространство обычного процесса — почему указатели гостя не совпадают с указателями хоста (2026.08.16)
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-### День 2 Компиляция C/C++ в WASM
+include(FetchContent)
 
-Цель: получить первый рабочий .wasm из своего C++ кода двумя разными тулчейнами.
+set(WASMTIME_VERSION "v47.0.3")
+set(WASMTIME_ARCHIVE "wasmtime-${WASMTIME_VERSION}-x86_64-windows-c-api.zip")
 
-- [x] Установить [wasi-sdk](https://github.com/WebAssembly/wasi-sdk) (clang с таргетом `wasm32-wasi`), скомпилировать простую C-функцию, запустить через `wasmtime` (2026.08.16)
-- [x] Установить [Emscripten](https://emscripten.org/docs/compiling/WebAssembly.html), скомпилировать тот же пример, сравнить: под что заточен каждый тулчейн (WASI/сервер vs браузер), размер бинарника (2026.08.17)
-- [x] Прочитать тред ["What is the difference between wasi-sdk and emscripten?"](https://github.com/WebAssembly/wasi-sdk/issues/222) — это прямо отвечает на вопрос «какой инструмент когда» (2026.08.17)
-- [x] Почему для плагинной системы (не для браузера) обычно нужен именно `wasi-sdk` / `wasm32-wasi`, а не Emscripten (2026.08.17)
+FetchContent_Declare(
+        wasmtime_c_api
+        URL "https://github.com/bytecodealliance/wasmtime/releases/download/${WASMTIME_VERSION}/${WASMTIME_ARCHIVE}"
+)
+FetchContent_MakeAvailable(wasmtime_c_api)
 
-### День 3 Модель памяти и передача данных через границу
+# В архиве нет своего CMakeLists.txt -- это просто заголовки + готовая
+# библиотека, поэтому объявляем IMPORTED-таргет вручную. Дальше он
+# используется в проекте как обычная зависимость через target_link_libraries.
+# Windows-архив содержит только shared-вариант (wasmtime.dll + .dll.lib),
+# в отличие от Linux/macOS, где есть статическая libwasmtime.a.
+if(WIN32)
+    add_library(wasmtime SHARED IMPORTED)
+    set_target_properties(wasmtime PROPERTIES
+            IMPORTED_LOCATION "${wasmtime_c_api_SOURCE_DIR}/lib/wasmtime.dll"
+            IMPORTED_IMPLIB "${wasmtime_c_api_SOURCE_DIR}/lib/wasmtime.dll.lib"
+            INTERFACE_INCLUDE_DIRECTORIES "${wasmtime_c_api_SOURCE_DIR}/include"
+    )
+else()
+    add_library(wasmtime STATIC IMPORTED)
+    set_target_properties(wasmtime PROPERTIES
+            IMPORTED_LOCATION "${wasmtime_c_api_SOURCE_DIR}/lib/libwasmtime.a"
+            INTERFACE_INCLUDE_DIRECTORIES "${wasmtime_c_api_SOURCE_DIR}/include"
+    )
+endif()
 
-Цель: понять, как из хоста передать/получить строку, буфер, структуру — это главный источник багов в плагинных системах на WASM.
+add_executable(host host.cpp)
+if(WIN32)
+    target_link_libraries(host PRIVATE wasmtime)
+    add_custom_command(TARGET host POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${wasmtime_c_api_SOURCE_DIR}/lib/wasmtime.dll"
+            "$<TARGET_FILE_DIR:host>"
+    )
+else()
+    target_link_libraries(host PRIVATE wasmtime pthread dl m)
+endif()
 
-- [x] Разобрать паттерн «указатель + длина»: как хост записывает данные в память гостя и как экспортированные `malloc`/`free` дают гостю выделить буфер для хоста (2026.08.17)
-- [x] Написать вручную пример: C++ хост копирует строку в память WASM-модуля, вызывает функцию, читает результат обратно (2026.08.17)
-- [x] Посмотреть, как это решает готовая библиотека — polistrate-пример [Extism PDK](https://extism.org/docs/concepts/pdk) (не обязательно ставить, достаточно прочитать концепцию памяти) (2026.08.17)
 
-### День 4 Встраивание рантайма в C++ хост
+#add_library(ide OBJECT upper.cpp)
 
-Цель: написать минимальный C++ host-процесс, который сам загружает и исполняет .wasm файл.
+```
 
-- [x] Выбрать рантайм с C API: [Wasmtime C API](https://docs.wasmtime.dev/c-api/) (более активно развивается, из коробки sandboxing/fuel) или [WAMR](https://github.com/bytecodealliance/wasm-micro-runtime) (легче, C-native, хорош для embedded)  (2026.08.17)
-- [x] Написать C++ программу: загрузить `.wasm`, создать `Store`/`Instance`, найти экспортированную функцию по имени, вызвать её, получить результат (2026.08.17)
-- [x] Прогнать «плохой» модуль (например, с бесконечным циклом) и убедиться, что хост не падает — это и есть главная причина использовать WASM вместо `dlopen` (2026.08.18)
+### host.cpp
+```cpp
+// День 8 -- мини-проект: хост сканирует папку plugins/, загружает каждый
+// .wasm как плагин по контракту из plugin_abi.h, единообразно защищает
+// КАЖДЫЙ вызов plugin_process топливным лимитом (fuel), изолирует
+// сломанный плагин (не падает и не останавливает обработку остальных),
+// и замеряет время компиляции модуля и время вызова функции.
 
-### День 5 Host functions — API хоста для плагина
+#include <algorithm>
+#include <chrono>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <iomanip>
+#include <string>
+#include <vector>
+#include <iostream>
+#include <format>
+#include <ranges>
 
-Цель: научиться давать плагину доступ к «внешнему миру» только через явно разрешённые функции.
+#include <wasmtime.hh>
 
-- [x] Зарегистрировать в C++ хосте импортируемую функцию (например, `host_log(ptr, len)`) и вызвать её из кода плагина (2026.08.18)
-- [x] Понять модель линковки импортов/экспортов: почему это безопаснее, чем то, что плагин через `dlopen` получает вообще всё адресное пространство процесса (2026.08.18)
-- [x] Прочитать про реальный пример на проде — [Wasm-плагины в Apache Traffic Server](https://docs.trafficserver.apache.org/en/latest/admin-guide/plugins/wasm.en.html) или Envoy Wasm filters (поиск "envoy wasm filters") (2026.08.18)
+// Единый лимит топлива на весь жизненный цикл плагина (abi_version -> init
+// -> process -> shutdown). Специально не завышен: реальным плагинам из
+// этого проекта его с большим запасом хватает, а "сломанный" плагин с
+// while(1) исчерпает его практически мгновенно -- защита одинакова для
+// всех, никакого спецкейса под broken.wasm в коде хоста нет.
 
-### День 6 Проектирование контракта плагина
+namespace {
+    constexpr uint64_t FUEL_BUDGET{5'000'000};
+    const std::string TEST_INPUT{"Hello WASM plugin world, this is a test"};
+    const std::filesystem::path PLUGIN_DIR{"plugins"};
+    const std::string EXT{".wasm"};
 
-Цель: спроектировать собственный минимальный ABI плагина — то, что в реальном проекте станет "SDK для авторов плагинов".
+    struct PluginResult {
+        bool ok{false};
+        std::string name;
+        std::string status;
+        std::string output;
+        double compile_ms{0.0};
+        double call_ms{0.0};
+    };
 
-- [x] Определить набор функций жизненного цикла плагина: `plugin_init`, `plugin_process`, `plugin_shutdown` (простой C ABI) (2026.08.20)
-- [x] Продумать версионирование интерфейса (что происходит, если плагин собран под старую версию API хоста) (2026.08.20)
-- [x] Прочитать статью ["Building Native Plugin Systems with WebAssembly Components"](https://tartanllama.xyz/posts/wasm-plugins/) (Sy Brand) — разбирает именно проблему безопасности/интерфейсов/бинарной совместимости при плагинах (2026.08.20)
+    std::vector<uint8_t> read_file(const std::filesystem::path& path) {
+        std::ifstream file(path, std::ios::binary);
+        return std::vector<uint8_t>{
+            std::istreambuf_iterator<char>(file),
+            std::istreambuf_iterator<char>()};
+    }
 
-### День 7 Ресурсные лимиты и отказоустойчивость
+    std::optional<wasmtime::Func> get_export(wasmtime::Store& store,
+                                             wasmtime::Instance& instance,
+                                             const char* name) {
+        const auto e{instance.get(store, name)};
+        if (!e || !std::holds_alternative<wasmtime::Func>(*e)) return std::nullopt;
+        return std::get<wasmtime::Func>(*e);
+    }
 
-Цель: научиться ограничивать плагин по времени/памяти и красиво обрабатывать его сбои.
+}
 
-- [x] Изучить fuel-based и epoch-based прерывание выполнения в Wasmtime (защита от зависшего/злонамеренного плагина) (2026.08.20)
-- [x] Настроить лимит на размер линейной памяти модуля (2026.08.20)
-- [x] Обработать trap (паника внутри WASM) в C++ хосте так, чтобы это превращалось в обычную ошибку, а не крэш процесса (2026.08.20)
+int main(int argc, char *argv[]) {
+    std::vector<std::filesystem::path> wasm_files;
+    for (const auto& entry: std::filesystem::directory_iterator(PLUGIN_DIR)) {
+        if (entry.path().extension() != EXT) continue;
+        wasm_files.push_back(entry.path());
+    }
+    std::ranges::sort(wasm_files);
 
-### День 8 Мини-проект: рабочая плагинная система
+    std::cout << std::format("Found {} .wasm files in {}:\n",
+        wasm_files.size(),
+        PLUGIN_DIR.string());
+    for (const auto& p: wasm_files) std::cout << std::format("  {}\n", p.filename().string());
+    std::cout << '\n';
 
-Цель: увидеть современный, типобезопасный способ описывать интерфейс плагина — это то, к чему сейчас идёт вся индустрия вместо ручного маршалинга.
+    wasmtime::Config config;
+    config.consume_fuel(true);
+    wasmtime::Engine engine{std::move(config)};
 
-- [x] C++ хост, который сканирует папку с `.wasm`-файлами и загружает их как плагины (2026.08.21)
-- [x] 2–3 простых плагина на C (например, «преобразование текста»: upper-case, реверс строки, подсчёт слов), реализующих общий контракт из Дня 6 (2026.08.21)
-- [x] Один намеренно «сломанный» плагин (бесконечный цикл или паника) — хост должен корректно его изолировать и продолжить работу с остальными (2026.08.21)
-- [x] Замерить время загрузки модуля и вызова функции — почувствовать порядок величины накладных расходов (2026.08.21)
+    std::vector<PluginResult> results;
+    for (const auto& path: wasm_files) {
+        PluginResult r;
+        r.name = path.filename().string();
+        std::cout << std::format("==== {} ====\n", r.name);
 
-### День 9 Component Model и WIT — куда движется экосистема
+        auto bytes{read_file(path)};
 
-Цель: увидеть современный, типобезопасный способ описывать интерфейс плагина — это то, к чему сейчас идёт вся индустрия вместо ручного маршалинга.
+        auto t0{std::chrono::steady_clock::now()};
+        auto module_result{wasmtime::Module::compile(engine, bytes)};
+        auto t1{std::chrono::steady_clock::now()};
+        r.compile_ms = std::chrono::duration<double, std::milli>(t1 - t0).count();
 
-- [x] Прочитать официальный гайд Wasmtime ["An Application with Plugins"](https://docs.wasmtime.dev/wasip2-plugins.html) — эталонный пример плагинной системы на Component Model + WIT (хост на Rust, но архитектура универсальна) (2026.08.21)
-- [x] Написать простой `.wit`-файл, описывающий интерфейс плагина (функции + типы), сгенерировать биндинги через [wit-bindgen](https://github.com/bytecodealliance/wit-bindgen) для C (2026.08.21)
-- [x] Превратить обычный `.wasm`-модуль в компонент через [wasm-tools](https://github.com/bytecodealliance/wasm-tools) (2026.08.21)
-- [x] Учесть нюанс: поддержка Component Model в C API Wasmtime/WAMR менее зрелая, чем в Rust — для реального проекта это стоит проверить на актуальном состоянии перед выбором (2026.08.22)
+        if (!module_result) {
+            r.status = std::format("COMPILATION ERROR: {}\n", module_result.err().message());
+            std::cout << std::format("{}\n\n", r.status);
+            results.push_back(r);
+            continue;
+        }
 
-### День 10 Обзор экосистемы: что не изобретать самому
+        wasmtime::Module module{module_result.unwrap()};
+        std::cout << std::format("  Module compiled in {:.3f} ms\n", r.compile_ms);
 
-Цель: понимать, где заканчивается «изучение основ» и начинается «взять готовое решение».
+        wasmtime::Store store{engine};
+        // Топливный лимит выставляется ОДИНАКОВО для каждого плагина, ДО
+        // того как хост знает, "хороший" он или "сломанный" -- это и есть
+        // защита по умолчанию, а не отдельная ветка для broken.wasm.
+        store.context().set_fuel(FUEL_BUDGET).unwrap();
 
-- [x] Плагин на C++ (component model) (2026.08.23)
-- [x] Плагин на C++ (2026.08.23)
-- [x] Плагин на C++ (async) (2026.08.23)
-- [ ] Плагин на rust (wasm)
-- [ ] Плагин на rust (wit)
-- [ ] arch host c++ - proxy rust - plugin
-- [ ] Посмотреть на [Extism](https://extism.org/) — готовый фреймворк именно под «WASM как плагины», с SDK для C++ хоста и PDK для авторов плагинов на разных языках
-- [ ] Прочитать сравнение рантаймов [Wasmtime vs Wasmer vs WasmEdge (2026)](https://reintech.io/blog/wasmtime-vs-wasmer-vs-wasmedge-wasm-runtime-comparison-2026), чтобы понимать текущий ландшафт
+        // upper_cpp.wasm (C++, libc++) тянет за собой WASI-импорты
+        // (fd_write/fd_seek/fd_close) через свои abort/terminate-пути, даже
+        // с -fno-exceptions -fno-rtti -- ровно та же история, что с Extism
+        // и с impl.cpp в Дне 9. Чисто-сишные плагины этого не делают, но
+        // хост не должен полагаться на язык плагина -- поэтому WASI теперь
+        // подключается всегда, через Linker вместо голого Instance::create.
+        wasmtime::WasiConfig wasi;
+        wasi.inherit_stdout();
+        wasi.inherit_stderr();
+        store.context().set_wasi(std::move(wasi)).unwrap();
+
+        wasmtime::Linker linker{engine};
+        linker.define_wasi().unwrap();
+        auto instance_result{linker.instantiate(store, module)};
+        if (!instance_result) {
+            r.status = std::format("INSTANTIATION ERROR: {}\n", instance_result.err().message());
+            std::cout << std::format("{}\n\n", r.status);
+            results.push_back(r);
+            continue;
+        }
+        wasmtime::Instance instance{instance_result.unwrap()};
+
+        auto abi_version_fn{get_export(store, instance, "plugin_abi_version")};
+        auto init_fn{get_export(store, instance, "plugin_init")};
+        auto alloc_fn{get_export(store, instance, "plugin_alloc")};
+        auto free_fn{get_export(store, instance, "plugin_free")};
+        auto process_fn{get_export(store, instance, "plugin_process")};
+        auto shutdown_fn{get_export(store, instance, "plugin_shutdown")};
+        auto memory_export{instance.get(store, "memory")};
+
+        if (!abi_version_fn ||
+            !init_fn ||
+            !alloc_fn ||
+            !free_fn ||
+            !process_fn ||
+            !shutdown_fn ||
+            !memory_export || !std::holds_alternative<wasmtime::Memory>(*memory_export)) {
+
+            r.status = std::format("ERROR: plugin does not implement contract completely");
+            std::cout << std::format("{}\n\n", r.status);
+            results.push_back(r);
+            continue;
+        }
+        wasmtime::Memory memory{std::get<wasmtime::Memory>(*memory_export)};
+
+        // 1) abi_version
+        auto abi_res{abi_version_fn->call(store, {})};
+        if (!abi_res) {
+            r.status = std::format("TRAP on plugin_abi_version: {}\n", abi_res.err().message());
+            std::cout << std::format("{}\n\n", r.status);
+            results.push_back(r);
+            continue;
+        }
+
+        if (const int32_t abi_version{abi_res.unwrap()[0].i32()}; abi_version != 1) {
+            r.status = std::format("ABI VERSION MISMATCHING: {}", abi_version);
+            std::cout << std::format("{}\n\n", r.status);
+            results.push_back(r);
+            continue;
+        }
+
+        // 2) init
+        auto init_result{init_fn->call(store, {})};
+        if (!init_result) {
+            r.status = std::format("TRAP on plugin_init: {}\n", init_result.err().message());
+            std::cout << std::format("{}\n\n", r.status);
+            results.push_back(r);
+            continue;
+        }
+        if (init_result.unwrap()[0].i32() != 0) {
+            r.status = "plugin_init returned error code";
+            std::cout << std::format("{}\n\n", r.status);
+            results.push_back(r);
+            continue;
+        }
+
+        // 3) записываем тестовый вход в память гостя
+        auto in_alloc_result{alloc_fn->call(store, {static_cast<int32_t>(TEST_INPUT.size())})};
+        if (!in_alloc_result) {
+            r.status = std::format("TRAP on plugin_alloc: {}\n", in_alloc_result.err().message());
+            std::cout << std::format("{}\n\n", r.status);
+            results.push_back(r);
+            continue;
+        }
+        const int32_t in_ptr{in_alloc_result.unwrap()[0].i32()};
+        std::memcpy(memory.data(store).data() + in_ptr, TEST_INPUT.data(), TEST_INPUT.size());
+
+        // 4) вызов plugin_process -- под тем же топливным лимитом, что и
+        // весь остальной жизненный цикл. Именно здесь "сломанный" плагин
+        // споткнётся об исчерпание топлива.
+        const auto t2{std::chrono::steady_clock::now()};
+        auto process_result{process_fn->call(store, {
+            in_ptr,
+            static_cast<int32_t>(TEST_INPUT.size()),})};
+        const auto t3{std::chrono::steady_clock::now()};
+        r.call_ms = std::chrono::duration<double, std::milli>(t3 - t2).count();
+
+        if (!process_result) {
+            // Именно эта ветка ловит "сломанный" плагин: хост не падает,
+            // печатает понятную ошибку и переходит к следующему плагину.
+            const std::string full_message{process_result.err().message()};
+            // Для сводки вытаскиваем содержательную строку "wasm trap: ..."
+            // (сама причина), а не первую строку backtrace'а; полный текст
+            // остаётся виден в подробном логе выше.
+            std::string short_message{full_message};
+            const auto trap_pos{full_message.find("wasm trap:")};
+            if (trap_pos != std::string::npos) {
+                std::string rest{full_message.substr(trap_pos)};
+                short_message = rest.substr(0, rest.find('\n'));
+            } else {
+                short_message = full_message.substr(0, full_message.find('\n'));
+            }
+            r.status = std::format("TRAP on plugin_process: {}\n", short_message);
+            std::cout << std::format("  plugin_process failed in {:.3f} ms\n", r.call_ms);
+            std::cout << std::format(" {}\n\n", full_message);
+            results.push_back(r);
+            continue;
+        }
+
+        const uint64_t packed{static_cast<uint64_t>(process_result.unwrap()[0].i64())};
+        const int32_t out_ptr{static_cast<int32_t>(static_cast<uint32_t>(packed >> 32))};
+        const int32_t out_len{static_cast<int32_t>(static_cast<uint32_t>(packed & 0xFFFFFFFFu))};
+        if (out_ptr == 0) {
+            r.status = std::format("plugin_process notify about error (ptr == 0)");
+            std::cout << std::format("{}\n\n", r.status);
+            results.push_back(r);
+            continue;
+        }
+
+        std::string output{
+            reinterpret_cast<char*>(memory.data(store).data() + out_ptr),
+            static_cast<std::string::size_type>(out_len)
+        };
+
+        // 5) освобождаем оба буфера
+        (void)free_fn->call(store, {in_ptr});
+        (void)free_fn->call(store, {out_ptr});
+
+        // 6) shutdown
+        (void)shutdown_fn->call(store, {});
+
+        r.ok = true;
+        r.status = "OK";
+        r.output = output;
+        std::cout << std::format("  Calling plugin_process() took {:.3f} ms\n", r.call_ms);
+        std::cout << std::format("  Input: '{}'\n", TEST_INPUT);
+        std::cout << std::format("  Output: '{}'\n", output);
+
+        results.push_back(r);
+    }
+
+    // Итоговая сводка
+    std::cout << "===== CONCLUSION =====\n";
+    std::cout << std::format("|{:20}|{:8}|{:15}|{:8}|\n", "Plugin", "Status", "Compilation(ms)", "Call(ms)");
+    for (const auto& r : results) {
+        std::cout << std::format("|{:20}|{:8}|{:15}|{:8}|\n",
+            r.name,
+            (r.ok ? "OK" : "FAIL"),
+            r.compile_ms,
+            r.call_ms);
+    }
+
+    std::cout << "\nError details:\n";
+    int ok_count{};
+    for (const auto& r : results) {
+        if (r.ok) ok_count++;
+        else std::cout << std::format("  {}: {}\n", r.name, r.status);
+    }
+    std::cout << std::format("\nProcessed {} out of {}\n", ok_count, results.size());
+
+    return 0;
+}
+
+```
+
+
+### cargo.toml
+```toml
+[package]
+name = "upper_rust"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+# cdylib, а не bin -- у библиотечного крейта нет fn main(), поэтому
+# итоговый .wasm получается reactor-модулем без _start (тот же смысл,
+# что -nostartfiles -Wl,--no-entry в сишных примерах этой сессии), а не
+# command-модулем.
+crate-type = ["cdylib"]
+
+[profile.release]
+# оптимизация по размеру -- типично для wasm-плагинов
+opt-level = "z"
+# без unwinding -- меньше кода, нет зависимостей на eh_personality
+panic = "abort"
+lto = true
+```
+### src/lib.rs
+```rust
+/*
+Плагин на Rust под тот же ручной ABI (без Component Model) --
+plugin_abi.h из Дня 6/8: plugin_abi_version/init/alloc/free/process/
+shutdown, вход и выход -- (ptr, len), результат process() упакован в
+один u64, ровно как у C/C++-версий из этой сессии.
+
+Единственное место, где контракт C ABI трётся об идиомы Rust --
+plugin_free(ptr). В C free() сама помнит размер выделенного блока
+(аллокатор хранит его в служебном заголовке перед данными). У Rust
+std::alloc::dealloc никакой памяти не хватает -- ей ОБЯЗАТЕЛЬНО нужен
+тот же Layout (включая размер), с которым звали alloc(), иначе UB.
+А контракт plugin_free(ptr) размер не передаёт вообще. Решение здесь
+то же самое, что делает malloc/free внутри себя: перед пользовательскими
+данными прячется маленький заголовок с размером -- см. HEADER_SIZE.
+
+rustup target add wasm32-wasip1
+cargo build --release --target wasm32-wasip1
+cp ./target/wasm32-wasip1/release/upper_rust.wasm ./plugins/
+
+*/
+
+use std::alloc::{alloc, dealloc, Layout};
+use std::slice;
+
+const PLUGIN_ABI_VERSION: i32 = 1;
+
+// На wasm32 usize -- 4 байта, так что заголовок съедает всего 4 байта
+// перед данными, а не 8, как было бы на x86_64.
+const HEADER_SIZE: usize = std::mem::size_of::<usize>();
+
+static mut INITIALIZED: bool = false;
+
+#[no_mangle]
+pub extern "C" fn plugin_abi_version() -> i32 {
+    PLUGIN_ABI_VERSION
+}
+
+#[no_mangle]
+pub extern "C" fn plugin_init() -> i32 {
+    unsafe {
+        INITIALIZED = true;
+    }
+    0
+}
+
+#[no_mangle]
+pub extern "C" fn plugin_alloc(size: i32) -> *mut u8 {
+    if size < 0 {
+        return std::ptr::null_mut();
+    }
+    let payload = size as usize;
+    let total = payload + HEADER_SIZE;
+
+    let layout = match Layout::from_size_align(total, HEADER_SIZE) {
+        Ok(l) => l,
+        Err(_) => return std::ptr::null_mut(),
+    };
+
+    unsafe {
+        let base = alloc(layout);
+        if base.is_null() {
+            return std::ptr::null_mut();
+        }
+        // Прячем размер payload'а перед данными -- ровно та бухгалтерия,
+        // которую в обычном malloc() делает сам аллокатор незаметно для нас.
+        *(base as *mut usize) = payload;
+        base.add(HEADER_SIZE)
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn plugin_free(ptr: *mut u8) {
+    if ptr.is_null() {
+        return;
+    }
+
+    unsafe {
+        let base = ptr.sub(HEADER_SIZE);
+        let payload = *(base as *const usize);
+        let total = payload + HEADER_SIZE;
+        if let Ok(layout) = Layout::from_size_align(total, HEADER_SIZE) {
+            dealloc(base, layout);
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn plugin_process(in_ptr: *const u8, in_len: i32) -> u64 {
+    if in_len < 0 || (unsafe { !INITIALIZED }) {
+        return 0;
+    }
+    if in_ptr.is_null() {
+        return 0;
+    }
+
+    // Безопасный Rust начинается сразу после границы с "сырым" ABI:
+    // из (ptr, len) собираем обычный &[u8] и дальше работаем с ним как
+    // с нормальными срезами/итераторами, а не руками бегаем по указателю.
+    let input: &[u8] = unsafe { slice::from_raw_parts(in_ptr, in_len as usize) };
+    let upper: Vec<u8> = input.iter().map(u8::to_ascii_uppercase).collect();
+    let len = upper.len();
+
+    let out_ptr = plugin_alloc(len as i32);
+    if out_ptr.is_null() {
+        return 0;
+    }
+
+    unsafe {
+        std::ptr::copy_nonoverlapping(upper.as_ptr(), out_ptr, len);
+    }
+
+    // Та же упаковка (ptr<<32)|len, что и в C: явно проходим через u32,
+    // чтобы обрезать указатель до 32 бит -- на wasm32 он и так влезает
+    // целиком, но так контракт совпадает с C-версией буква в букву.
+    ((out_ptr as u32 as u64) << 32) | (len as u32 as u64)
+}
+
+#[no_mangle]
+pub extern "C" fn plugin_shutdown() {
+    unsafe {
+        INITIALIZED = false;
+    }
+}
+
+```

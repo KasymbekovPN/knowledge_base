@@ -1,0 +1,43 @@
+// Простой WIT-интерфейс плагина. В отличие от plugin_abi.h (День 6),
+// где pointer+length и упаковка (ptr<<32)|len были ручной работой хоста
+// и плагина, здесь строки, ошибки и записи -- это ЧАСТЬ языка описания
+// интерфейса; маршалинг через линейную память компонент-модель берёт
+// на себя сама (канонический ABI), а не автор плагина.
+
+package example:plugin@0.1.0;
+
+interface transform {
+  /// Метаданные плагина -- аналог plugin_abi_version(), но как
+  /// структурированная запись, а не голое число.
+  record plugin-info {
+    name: string,
+    abi-version: u32,
+  }
+
+  /// Ошибка обработки -- размеченный вариант вместо "магического"
+  /// nullptr/0, которым сигнализировалась ошибка в ручном C ABI.
+  variant process-error {
+    not-initialized,
+    empty-input,
+    internal(string),
+  }
+
+  /// Аналог plugin_init() из Дня 6.
+  init: func();
+
+  /// Аналог plugin_abi_version() -- но теперь можно вернуть сразу
+  /// имя плагина вместе с версией.
+  info: func() -> plugin-info;
+
+  /// Аналог plugin_process(ptr, len) -> packed(ptr,len). Здесь просто
+  /// string -> result<string, process-error>: и вход, и выход --
+  /// обычные строки, без ручного plugin_alloc/plugin_free.
+  process: func(input: string) -> result<string, process-error>;
+
+  /// Аналог plugin_shutdown().
+  shutdown: func();
+}
+
+world plugin {
+  export transform;
+}

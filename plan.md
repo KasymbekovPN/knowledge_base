@@ -1,6 +1,5 @@
 
-
-wasm
+rust
 pybind11
 
 

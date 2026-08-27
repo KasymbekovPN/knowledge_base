@@ -4,6 +4,7 @@ build/
 .venv/
 .build-*/
 install
+target/
 
 *.o
 *.pyc
@@ -16,3 +17,4 @@ install
 *.pcm
 *.jpg
 *.pdf
+*.lock
