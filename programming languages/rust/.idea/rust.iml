@@ -16,7 +16,32 @@
       <sourceFolder url="file://$MODULE_DIR$/code/003 function as arg/004 arg as impl fn/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/code/003 function as arg/005 dyn fn/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/code/003 function as arg/006 ret func/src" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/code/004 modifiers passing by value by ref/by value/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/004 modifiers passing by value by ref/000 by value/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/004 modifiers passing by value by ref/001 by ref/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/004 modifiers passing by value by ref/002 by mut ref/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/005 let/000 base syntax/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/005 let/001 as pattern/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/005 let/002 shadowing/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/005 let/003 move and copy/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/005 let/004 let esle/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/005 let/005 if let/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/005 let/006 while let/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/006 match/000 base syntax/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/006 match/001 as expression/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/006 match/002 pattern matching/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/006 match/003 option/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/006 match/004 result/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/006 match/005 ranges/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/006 match/006 or pattern/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/006 match/007 guards/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/006 match/008 ad binding/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/006 match/009 destruct nested struct/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/006 match/010 match ref/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/008 cicles/000 loop/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/008 cicles/001 while/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/008 cicles/003 labels/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/008 cicles/for/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/009 borrow checker example/000 err - try mut and hold ref/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/code/001 entry point/000 simple/target" />
       <excludeFolder url="file://$MODULE_DIR$/code/001 entry point/001 with return/target" />
       <excludeFolder url="file://$MODULE_DIR$/code/001 entry point/002 explicit ret/target" />
@@ -31,7 +56,32 @@
       <excludeFolder url="file://$MODULE_DIR$/code/003 function as arg/004 arg as impl fn/target" />
       <excludeFolder url="file://$MODULE_DIR$/code/003 function as arg/005 dyn fn/target" />
       <excludeFolder url="file://$MODULE_DIR$/code/003 function as arg/006 ret func/target" />
-      <excludeFolder url="file://$MODULE_DIR$/code/004 modifiers passing by value by ref/by value/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/004 modifiers passing by value by ref/000 by value/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/004 modifiers passing by value by ref/001 by ref/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/004 modifiers passing by value by ref/002 by mut ref/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/005 let/000 base syntax/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/005 let/001 as pattern/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/005 let/002 shadowing/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/005 let/003 move and copy/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/005 let/004 let esle/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/005 let/005 if let/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/005 let/006 while let/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/006 match/000 base syntax/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/006 match/001 as expression/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/006 match/002 pattern matching/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/006 match/003 option/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/006 match/004 result/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/006 match/005 ranges/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/006 match/006 or pattern/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/006 match/007 guards/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/006 match/008 ad binding/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/006 match/009 destruct nested struct/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/006 match/010 match ref/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/008 cicles/000 loop/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/008 cicles/001 while/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/008 cicles/003 labels/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/008 cicles/for/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/009 borrow checker example/000 err - try mut and hold ref/target" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
