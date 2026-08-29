@@ -42,6 +42,19 @@
       <sourceFolder url="file://$MODULE_DIR$/code/008 cicles/003 labels/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/code/008 cicles/for/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/code/009 borrow checker example/000 err - try mut and hold ref/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/009 borrow checker example/001 err - ret var to local var/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/009 borrow checker example/002 err - double mut ref/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/009 borrow checker example/003 err - mut self ref/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/009 borrow checker example/004 err - iteration and modification/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/009 borrow checker example/005 err - too long closure lifetime/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/009 borrow checker example/006 err - struct ref/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/010 class creation/000 impl/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/010 class creation/001 field init/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/010 class creation/002 trait drop/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/010 class creation/003 const field/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/010 class creation/004 static field/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/011 macro_rules/000 decl macro example/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/011 macro_rules/001 fragment specifiers/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/code/001 entry point/000 simple/target" />
       <excludeFolder url="file://$MODULE_DIR$/code/001 entry point/001 with return/target" />
       <excludeFolder url="file://$MODULE_DIR$/code/001 entry point/002 explicit ret/target" />
@@ -82,6 +95,19 @@
       <excludeFolder url="file://$MODULE_DIR$/code/008 cicles/003 labels/target" />
       <excludeFolder url="file://$MODULE_DIR$/code/008 cicles/for/target" />
       <excludeFolder url="file://$MODULE_DIR$/code/009 borrow checker example/000 err - try mut and hold ref/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/009 borrow checker example/001 err - ret var to local var/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/009 borrow checker example/002 err - double mut ref/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/009 borrow checker example/003 err - mut self ref/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/009 borrow checker example/004 err - iteration and modification/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/009 borrow checker example/005 err - too long closure lifetime/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/009 borrow checker example/006 err - struct ref/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/010 class creation/000 impl/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/010 class creation/001 field init/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/010 class creation/002 trait drop/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/010 class creation/003 const field/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/010 class creation/004 static field/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/011 macro_rules/000 decl macro example/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/011 macro_rules/001 fragment specifiers/target" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
