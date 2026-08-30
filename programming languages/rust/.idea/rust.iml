@@ -55,6 +55,26 @@
       <sourceFolder url="file://$MODULE_DIR$/code/010 class creation/004 static field/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/code/011 macro_rules/000 decl macro example/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/code/011 macro_rules/001 fragment specifiers/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/011 macro_rules/002 repeatition/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/011 macro_rules/003 my_vec example/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/011 macro_rules/004 procedural derive/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/012 macro_rules example/000 minimal/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/012 macro_rules example/001 arbitrary number of fields/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/012 macro_rules example/002 build with return/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/013 traits and generics/000 trait example/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/013 traits and generics/001 static dyn dispatcher/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/013 traits and generics/002 multiply inheritance/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/013 traits and generics/003 associated type/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/013 traits and generics/004 op via trait/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/013 traits and generics/005 traits bound/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/013 traits and generics/006 blanket implementation/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/014 impl trait/000 impl trait as arg/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/014 impl trait/001 impl trait as ret/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/015 enums adt pattern matching/000 simple/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/015 enums adt pattern matching/001 recursive enum/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/015 enums adt pattern matching/002 repr/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/015 enums adt pattern matching/003 matches/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/016 error handling/000 option/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/code/001 entry point/000 simple/target" />
       <excludeFolder url="file://$MODULE_DIR$/code/001 entry point/001 with return/target" />
       <excludeFolder url="file://$MODULE_DIR$/code/001 entry point/002 explicit ret/target" />
@@ -108,6 +128,26 @@
       <excludeFolder url="file://$MODULE_DIR$/code/010 class creation/004 static field/target" />
       <excludeFolder url="file://$MODULE_DIR$/code/011 macro_rules/000 decl macro example/target" />
       <excludeFolder url="file://$MODULE_DIR$/code/011 macro_rules/001 fragment specifiers/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/011 macro_rules/002 repeatition/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/011 macro_rules/003 my_vec example/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/011 macro_rules/004 procedural derive/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/012 macro_rules example/000 minimal/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/012 macro_rules example/001 arbitrary number of fields/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/012 macro_rules example/002 build with return/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/013 traits and generics/000 trait example/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/013 traits and generics/001 static dyn dispatcher/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/013 traits and generics/002 multiply inheritance/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/013 traits and generics/003 associated type/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/013 traits and generics/004 op via trait/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/013 traits and generics/005 traits bound/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/013 traits and generics/006 blanket implementation/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/014 impl trait/000 impl trait as arg/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/014 impl trait/001 impl trait as ret/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/015 enums adt pattern matching/000 simple/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/015 enums adt pattern matching/001 recursive enum/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/015 enums adt pattern matching/002 repr/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/015 enums adt pattern matching/003 matches/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/016 error handling/000 option/target" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
