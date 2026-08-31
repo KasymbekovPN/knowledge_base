@@ -75,6 +75,24 @@
       <sourceFolder url="file://$MODULE_DIR$/code/015 enums adt pattern matching/002 repr/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/code/015 enums adt pattern matching/003 matches/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/code/016 error handling/000 option/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/016 error handling/001 result/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/016 error handling/002 try operator convert/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/016 error handling/003 thiserror/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/016 error handling/004 anyhow/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/017 panic/000 base/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/017 panic/001 unwind/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/017 panic/002 abort/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/017 panic/003 catch unwind/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/017 panic/004 in thread/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/017 panic/005 assert/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/017 panic/006 expect/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/017 panic/007 custom panic hook/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/018 box/000 simple/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/018 box/001 Deref DerefMut/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/018 box/002 move/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/018 box/003 drop/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/018 box/004 leak into_raw from_raw/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/019 rc arc/000 rc demo/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/code/001 entry point/000 simple/target" />
       <excludeFolder url="file://$MODULE_DIR$/code/001 entry point/001 with return/target" />
       <excludeFolder url="file://$MODULE_DIR$/code/001 entry point/002 explicit ret/target" />
@@ -148,6 +166,24 @@
       <excludeFolder url="file://$MODULE_DIR$/code/015 enums adt pattern matching/002 repr/target" />
       <excludeFolder url="file://$MODULE_DIR$/code/015 enums adt pattern matching/003 matches/target" />
       <excludeFolder url="file://$MODULE_DIR$/code/016 error handling/000 option/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/016 error handling/001 result/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/016 error handling/002 try operator convert/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/016 error handling/003 thiserror/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/016 error handling/004 anyhow/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/017 panic/000 base/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/017 panic/001 unwind/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/017 panic/002 abort/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/017 panic/003 catch unwind/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/017 panic/004 in thread/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/017 panic/005 assert/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/017 panic/006 expect/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/017 panic/007 custom panic hook/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/018 box/000 simple/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/018 box/001 Deref DerefMut/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/018 box/002 move/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/018 box/003 drop/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/018 box/004 leak into_raw from_raw/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/019 rc arc/000 rc demo/target" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
