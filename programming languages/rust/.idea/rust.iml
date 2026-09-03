@@ -37,10 +37,6 @@
       <sourceFolder url="file://$MODULE_DIR$/code/006 match/008 ad binding/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/code/006 match/009 destruct nested struct/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/code/006 match/010 match ref/src" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/code/008 cicles/000 loop/src" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/code/008 cicles/001 while/src" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/code/008 cicles/003 labels/src" isTestSource="false" />
-      <sourceFolder url="file://$MODULE_DIR$/code/008 cicles/for/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/code/009 borrow checker example/000 err - try mut and hold ref/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/code/009 borrow checker example/001 err - ret var to local var/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/code/009 borrow checker example/002 err - double mut ref/src" isTestSource="false" />
@@ -93,6 +89,21 @@
       <sourceFolder url="file://$MODULE_DIR$/code/018 box/003 drop/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/code/018 box/004 leak into_raw from_raw/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/code/019 rc arc/000 rc demo/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/019 rc arc/001 rc - single thread only/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/019 rc arc/002 arc demo/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/019 rc arc/003 cycle of strong link is leak/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/019 rc arc/004 weak demo/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/020 Cell RefCell internal mutability/000 Cell demo/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/020 Cell RefCell internal mutability/001 RefCell demo/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/008 cycles/000 loop/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/008 cycles/001 while/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/008 cycles/003 labels/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/008 cycles/for/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/020 Cell RefCell internal mutability/002 violation of rule/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/020 Cell RefCell internal mutability/003 try_borrow/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/020 Cell RefCell internal mutability/004 RefCell in Rc/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/020 Cell RefCell internal mutability/005 RefCell not threadsafe/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/code/021 higher rank traits bound/000 problem/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/code/001 entry point/000 simple/target" />
       <excludeFolder url="file://$MODULE_DIR$/code/001 entry point/001 with return/target" />
       <excludeFolder url="file://$MODULE_DIR$/code/001 entry point/002 explicit ret/target" />
@@ -128,10 +139,6 @@
       <excludeFolder url="file://$MODULE_DIR$/code/006 match/008 ad binding/target" />
       <excludeFolder url="file://$MODULE_DIR$/code/006 match/009 destruct nested struct/target" />
       <excludeFolder url="file://$MODULE_DIR$/code/006 match/010 match ref/target" />
-      <excludeFolder url="file://$MODULE_DIR$/code/008 cicles/000 loop/target" />
-      <excludeFolder url="file://$MODULE_DIR$/code/008 cicles/001 while/target" />
-      <excludeFolder url="file://$MODULE_DIR$/code/008 cicles/003 labels/target" />
-      <excludeFolder url="file://$MODULE_DIR$/code/008 cicles/for/target" />
       <excludeFolder url="file://$MODULE_DIR$/code/009 borrow checker example/000 err - try mut and hold ref/target" />
       <excludeFolder url="file://$MODULE_DIR$/code/009 borrow checker example/001 err - ret var to local var/target" />
       <excludeFolder url="file://$MODULE_DIR$/code/009 borrow checker example/002 err - double mut ref/target" />
@@ -184,6 +191,21 @@
       <excludeFolder url="file://$MODULE_DIR$/code/018 box/003 drop/target" />
       <excludeFolder url="file://$MODULE_DIR$/code/018 box/004 leak into_raw from_raw/target" />
       <excludeFolder url="file://$MODULE_DIR$/code/019 rc arc/000 rc demo/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/019 rc arc/001 rc - single thread only/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/019 rc arc/002 arc demo/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/019 rc arc/003 cycle of strong link is leak/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/019 rc arc/004 weak demo/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/020 Cell RefCell internal mutability/000 Cell demo/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/020 Cell RefCell internal mutability/001 RefCell demo/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/008 cycles/000 loop/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/008 cycles/001 while/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/008 cycles/003 labels/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/008 cycles/for/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/020 Cell RefCell internal mutability/002 violation of rule/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/020 Cell RefCell internal mutability/003 try_borrow/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/020 Cell RefCell internal mutability/004 RefCell in Rc/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/020 Cell RefCell internal mutability/005 RefCell not threadsafe/target" />
+      <excludeFolder url="file://$MODULE_DIR$/code/021 higher rank traits bound/000 problem/target" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
