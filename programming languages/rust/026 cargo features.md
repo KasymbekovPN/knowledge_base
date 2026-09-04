@@ -5,9 +5,6 @@ tags:
 ---
 [[programming languages/rust/_|<=]]
 
-
-Подтверждено: одна `Cargo.lock`, один `target/` на всю workspace, feature реально включает условную компиляцию (`#[cfg(feature = ...)]`). Теперь — build script:Работает чисто, без предупреждений (кэш от предыдущего запуска). Все примеры проверены. Собираю разбор.
-
 ## Главное структурное отличие сразу — Cargo не разделяет "сборку" и "пакеты"
 
 Твой CMake+vcpkg опыт — это **два** инструмента, работающих вместе: CMake генерирует сборочные файлы, vcpkg управляет зависимостями (в manifest-режиме через `vcpkg.json`, интегрируясь с CMake через toolchain file). Cargo — **один** инструмент, объединяющий обе роли: build system + package manager + task runner в одном бинарнике. Это не мелочь — многие вещи, которые в CMake/vcpkg требуют явной stitching-конфигурации (toolchain file, `CMAKE_TOOLCHAIN_FILE`, `find_package` после `vcpkg install`), в Cargo просто "работают" сами, потому что резолвинг зависимостей и сборка — одна система с самого начала.
@@ -235,8 +232,8 @@ cargo build --target x86_64-pc-windows-gnu
 - [x] сравнение с `unique_ptr`/`shared_ptr` — где Rust строже, а где придётся обходить borrow checker осознанно. (2026.08.03)
 
 **Фаза 3 — конкурентность и async** 
-- [ ] Потоки, `Mutex`/`RwLock`, каналы (`mpsc`);  "fearless concurrency" и почему это гарантируется на уровне типов, в отличие от C++ memory model; 
-- [ ] `async`/`await`, `tokio`, сравнение с корутинами C++20/Boost.Asio, с которыми ты уже плотно работал.
+- [x] Потоки, `Mutex`/`RwLock`, каналы (`mpsc`);  "fearless concurrency" и почему это гарантируется на уровне типов, в отличие от C++ memory model; (2026.08.04)
+- [x] `async`/`await`, `tokio`, сравнение с корутинами C++20/Boost.Asio, с которыми ты уже плотно работал. (2026.08.04)
 
 **Фаза 4 — инструментарий и экосистема** 
 - [ ] Cargo (workspaces, features, build scripts) как аналог CMake/vcpkg;
