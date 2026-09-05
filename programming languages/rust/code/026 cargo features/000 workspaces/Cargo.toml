@@ -1,0 +1,19 @@
+[workspace]
+resolver = "2"
+members = ["domain", "storage", "cli"]
+
+# Общие метаданные -- члены наследуют их через `.workspace = true`
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+authors = ["Pablo"]
+
+# Общие версии зависимостей -- одна версия на всю workspace, без дублирования и рассинхрона
+[workspace.dependencies]
+serde = { version = "1.0.229", features = ["derive"]}
+thiserror = "2.0.20"
+
+# Настройки профиля применяются ко ВСЕЙ workspace сразу
+[profile.release]
+opt-level = 3
+lto = true

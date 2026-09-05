@@ -1,1 +1,0 @@
-C:\projects\knowledge_base\programming\ languages\wasm\code\023\ rust\ plugin\ example\ -\ wasm\target\wasm32-wasip1\release\upper_rust.wasm: C:\projects\knowledge_base\programming\ languages\wasm\code\023\ rust\ plugin\ example\ -\ wasm\src\lib.rs

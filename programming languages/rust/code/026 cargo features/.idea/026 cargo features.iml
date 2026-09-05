@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<module type="EMPTY_MODULE" version="4">
+  <component name="NewModuleRootManager">
+    <content url="file://$MODULE_DIR$">
+      <sourceFolder url="file://$MODULE_DIR$/000 workspaces/cli/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/000 workspaces/domain/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/000 workspaces/storage/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/001 features/logkit/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/001 features/service_a/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/001 features/service_b/src" isTestSource="false" />
+      <excludeFolder url="file://$MODULE_DIR$/000 workspaces/target" />
+      <excludeFolder url="file://$MODULE_DIR$/001 features/target" />
+    </content>
+    <orderEntry type="inheritedJdk" />
+    <orderEntry type="sourceFolder" forTests="false" />
+  </component>
+</module>

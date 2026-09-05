@@ -41,59 +41,460 @@ ls -la Cargo.lock
 
 ## Workspaces — прямой аналог multi-module CMake-проекта с общим vcpkg manifest
 
+## Структура проекта
+
+Небольшой "магазин": `domain` (бизнес-логика), `storage` (хранилище, зависит от `domain`), `cli` (бинарник, зависит от обоих) — типичное деление на слои, которое ты наверняка делал через `add_subdirectory` в CMake.
+
+```
+shop_workspace/
+├── Cargo.toml          ← корень workspace, крейта здесь НЕТ
+├── domain/
+│   ├── Cargo.toml
+│   └── src/lib.rs
+├── storage/
+│   ├── Cargo.toml
+│   └── src/lib.rs
+└── cli/
+    ├── Cargo.toml
+    └── src/main.rs
+```
+
+## Корневой `Cargo.toml` — здесь нет `[package]`, только координация
+
 ```toml
 [workspace]
 resolver = "2"
-members = ["core", "cli"]
+members = ["domain", "storage", "cli"]
+
+# Общие метаданные -- члены наследуют их через `.workspace = true`
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+authors = ["Pablo"]
+
+# Общие версии зависимостей -- одна версия на всю workspace, без дублирования и рассинхрона
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+thiserror = "1"
+
+# Настройки профиля применяются ко ВСЕЙ workspace сразу
+[profile.release]
+opt-level = 3
+lto = true
 ```
 
-Я собрал реальную workspace из двух крейтов (`core` — библиотека, `cli` — бинарник, зависящий от неё через `path`) и проверил два ключевых свойства:
+`[workspace.dependencies]` — то, чего я не показывал в прошлом workspace-примере: это решение проблемы "у трёх крейтов workspace версия `serde` указана по-разному и разъезжается" — версия объявляется **один раз** в корне, а каждый крейт-участник просто ссылается на неё (`workspace = true`), без права указать другую версию. Прямой аналог того, как в CMake multi-module проекте версии зависимостей обычно фиксируют в одном корневом `vcpkg.json`, а не дублируют в каждом подмодуле.
 
-```
---- один Cargo.lock на всю workspace ---
--rw-r--r-- 1 root root 1881 Sep  3 15:50 Cargo.lock
---- один target/ на всю workspace ---
-cli
-cli.d
-libcore.d
-libcore.rlib
-```
-
-**Один `Cargo.lock`** на всю workspace (не по одному на крейт) — прямой аналог того, что в CMake-проекте с `add_subdirectory()` + единым `vcpkg.json` в корне все подмодули резолвят зависимости из одного и того же дерева версий, без риска конфликта версий одной и той же библиотеки в разных модулях.
-
-**Один `target/`** (аналог единой `build/` директории CMake) — общий кэш скомпилированных артефактов между всеми членами workspace: если `core` уже скомпилирован, `cli` просто линкуется с готовым `.rlib`, не пересобирая заново — то же самое, что происходит с общей `build/` в CMake multi-target проекте.
-
-`cargo build`/`cargo run` из корня workspace без `-p` собирает/выбирает **все** члены (или требует явного `-p <crate>` для конкретного, как я сделал в примере через `cargo run -p cli`) — концептуально похоже на выбор конкретного таргета в CMake (`cmake --build . --target cli`), только имена членов workspace определяются структурой `Cargo.toml`, а не `add_executable`/`add_library` вызовами.
-
-## Features — ближайший аналог vcpkg features + CMake `option()`, но с гарантией additive-семантики
+## `domain` — базовый слой, ни от кого из workspace не зависит
 
 ```toml
-[dependencies]
-serde = { version = "1", features = ["derive"], optional = true }
+[package]
+name = "domain"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
 
-[features]
-default = []
-json = ["dep:serde", "serde/derive"]
+[dependencies]
+thiserror = { workspace = true }
 ```
 
 ```rust
-#[cfg(feature = "json")]
-pub fn describe() -> &'static str { "core собран С фичей json" }
+use thiserror::Error;
 
-#[cfg(not(feature = "json"))]
-pub fn describe() -> &'static str { "core собран БЕЗ фичи json" }
+#[derive(Debug, Clone, PartialEq)]
+pub struct Product {
+    pub name: String,
+    pub price_cents: u64,
+}
+
+#[derive(Error, Debug)]
+pub enum DomainError {
+    #[error("цена должна быть больше нуля")]
+    InvalidPrice,
+}
+
+impl Product {
+    pub fn new(name: &str, price_cents: u64) -> Result<Self, DomainError> {
+        if price_cents == 0 {
+            return Err(DomainError::InvalidPrice);
+        }
+        Ok(Product { name: name.to_string(), price_cents })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rejects_zero_price() {
+        assert!(Product::new("книга", 0).is_err());
+    }
+
+    #[test]
+    fn accepts_valid_price() {
+        assert!(Product::new("книга", 1500).is_ok());
+    }
+}
 ```
 
-Прогнал обе сборки:
+`version.workspace = true` — синтаксис "унаследуй это поле из `[workspace.package]` корня" — избавляет от копирования `version = "0.1.0"` в каждый `Cargo.toml` вручную.
+
+## `storage` — зависит от `domain` через `path`
+
+```toml
+[package]
+name = "storage"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[dependencies]
+domain = { path = "../domain" }
+serde = { workspace = true }
+```
+
+```rust
+use domain::Product;
+use std::collections::HashMap;
+
+#[derive(Default)]
+pub struct InMemoryStore {
+    products: HashMap<String, Product>,
+}
+
+impl InMemoryStore {
+    pub fn new() -> Self { Self::default() }
+    pub fn save(&mut self, product: Product) {
+        self.products.insert(product.name.clone(), product);
+    }
+    pub fn get(&self, name: &str) -> Option<&Product> {
+        self.products.get(name)
+    }
+    pub fn len(&self) -> usize { self.products.len() }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn save_and_get() {
+        let mut store = InMemoryStore::new();
+        let p = Product::new("книга", 1500).unwrap();
+        store.save(p.clone());
+        assert_eq!(store.get("книга"), Some(&p));
+    }
+}
+```
+
+`domain = { path = "../domain" }` — путь **внутри** той же workspace, компилируется из исходников напрямую (не через crates.io), с тем же `Cargo.lock`, что и остальные — прямой аналог `add_subdirectory(../domain)` + `target_link_libraries(storage PRIVATE domain)`.
+
+## `cli` — точка входа, зависит от обоих
+
+```toml
+[package]
+name = "cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+
+[dependencies]
+domain = { path = "../domain" }
+storage = { path = "../storage" }
+```
+
+```rust
+use domain::Product;
+use storage::InMemoryStore;
+
+fn main() {
+    let mut store = InMemoryStore::new();
+
+    match Product::new("клавиатура", 4500) {
+        Ok(p) => store.save(p),
+        Err(e) => eprintln!("ошибка: {e}"),
+    }
+    match Product::new("бракованный товар", 0) {
+        Ok(p) => store.save(p),
+        Err(e) => eprintln!("ошибка: {e}"),
+    }
+
+    if let Some(p) = store.get("клавиатура") {
+        println!("найдено: {} за {} копеек", p.name, p.price_cents);
+    }
+    println!("всего товаров в store: {}", store.len());
+}
+```
+
+## Прогон — всё реально собрано и выполнено
 
 ```bash
-cargo run -p cli                          # → "core собран БЕЗ фичи json"
-cargo run -p cli --features core/json     # → "core собран С фичей json"
+cargo build     # собирает ВСЕ три крейта одной командой
 ```
 
-Механически `--features` включает `#[cfg(feature = "...")]`-код на этапе компиляции — прямой аналог `target_compile_definitions` в CMake + `#ifdef` в коде, или `#cmakedefine` в `.h.in`-шаблонах, которые ты наверняка использовал. `optional = true` у зависимости означает "эта зависимость подтягивается **только** если включена фича, которая её требует" (`dep:serde` в списке фичи) — прямой аналог того, как vcpkg-порты объявляют собственные `"features"` в `vcpkg.json`, каждая из которых может тянуть дополнительные зависимости порта.
+```
+   Compiling domain v0.1.0 (/home/claude/shop_workspace/domain)
+   Compiling storage v0.1.0 (/home/claude/shop_workspace/storage)
+   Compiling cli v0.1.0 (/home/claude/shop_workspace/cli)
+    Finished dev [unoptimized + debuginfo] target(s) in 32.50s
+```
 
-**Критическое отличие от `#define`/CMake options, о котором стоит явно знать:** Cargo features **аддитивны и не могут конфликтовать** — если в одной workspace два крейта требуют одну и ту же зависимость, но с разным набором фич, Cargo **объединяет** фичи (feature unification) — зависимость собирается один раз с **объединением** всех запрошенных фич от всех крейтов workspace. Это принципиально отличается от CMake `option()`, где два разных таргета в одном build tree технически **могут** линковаться с библиотекой, собранной по-разному (что часто и есть источник ODR-violation багов при неаккуратной конфигурации) — Cargo такую ситуацию architecturally исключает: фичи не могут "выключать" код, который использует другая часть той же зависимости, только **добавлять**.
+```bash
+cargo test      # тесты ВСЕХ крейтов сразу, без отдельного запуска на каждый
+```
+
+```
+     Running unittests src/lib.rs (target/debug/deps/domain-...)
+running 2 tests
+test tests::accepts_valid_price ... ok
+test tests::rejects_zero_price ... ok
+
+     Running unittests src/lib.rs (target/debug/deps/storage-...)
+running 1 test
+test tests::save_and_get ... ok
+```
+
+```bash
+cargo run -p cli   # запуск конкретного бинарника workspace
+```
+
+```
+ошибка: цена должна быть больше нуля
+найдено: клавиатура за 4500 копеек
+всего товаров в store: 1
+```
+
+```bash
+cargo test -p domain   # тесты только ОДНОГО крейта, если не нужны все
+```
+
+```
+running 2 tests
+test tests::accepts_valid_price ... ok
+test tests::rejects_zero_price ... ok
+```
+
+## Проверка того, что действительно общее
+
+```bash
+ls Cargo.lock domain/Cargo.lock storage/Cargo.lock cli/Cargo.lock
+```
+
+```
+ls: cannot access 'domain/Cargo.lock': No such file or directory
+ls: cannot access 'storage/Cargo.lock': No such file or directory
+ls: cannot access 'cli/Cargo.lock': No such file or directory
+Cargo.lock
+```
+
+```bash
+ls target/debug/ | grep -E "^(cli$|libdomain|libstorage)"
+```
+
+```
+cli
+libdomain.d
+libdomain.rlib
+libstorage.d
+libstorage.rlib
+```
+
+Ровно один `Cargo.lock` (в корне), ровно один `target/` — `domain` компилируется единожды в `.rlib`, `storage` и `cli` его переиспользуют без пересборки, `serde`/`thiserror` резолвятся в одной, согласованной версии для всех трёх крейтов сразу.
+
+Хочешь, добавим сюда что-то ещё для полноты картины — например, отдельный `xtask`-крейт (популярный в Rust-экосистеме паттерн замены `Makefile`/кастомных CMake-таргетов для задач вроде генерации кода или релизных скриптов), или переходим к следующей теме — `unsafe`/FFI, раз уже используем `domain`/`storage` как модель реального продакшен-разделения?
+
+## Features — ближайший аналог vcpkg features + CMake `option()`, но с гарантией additive-семантики
+
+## Итоговый проект
+
+```
+features_demo/
+├── Cargo.toml
+├── logkit/                 ← общая библиотека с двумя независимыми фичами
+│   ├── Cargo.toml
+│   └── src/lib.rs
+├── service_a/               ← просит у logkit только "json"
+│   ├── Cargo.toml
+│   └── src/main.rs
+└── service_b/                ← просит у logkit только "timestamps"
+    ├── Cargo.toml
+    └── src/main.rs
+```
+
+### Cargo.toml
+```toml
+[workspace]
+resolver = "2"
+members = ["logkit", "service_a", "service_b"]
+```
+
+### `logkit` — библиотека с двумя чисто аддитивными фичами
+
+```toml
+[package]
+name = "logkit"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+serde_json = { version = "1", optional = true }
+chrono = { version = "0.4", optional = true, default-features = false, features = ["clock"] }
+
+[features]
+default = []
+json = ["dep:serde_json"]
+timestamps = ["dep:chrono"]
+```
+
+```rust
+pub fn log(message: &str) -> String {
+    let mut parts = Vec::new();
+
+    #[cfg(feature = "timestamps")]
+    {
+        let now = chrono::Local::now().format("%H:%M:%S");
+        parts.push(format!("[{now}]"));
+    }
+
+    parts.push(message.to_string());
+    let plain = parts.join(" ");
+
+    #[cfg(feature = "json")]
+    { return serde_json::json!({ "log": plain }).to_string(); }
+
+    #[cfg(not(feature = "json"))]
+    { plain }
+}
+
+pub fn active_features() -> Vec<&'static str> {
+    let mut f = Vec::new();
+    #[cfg(feature = "json")] f.push("json");
+    #[cfg(feature = "timestamps")] f.push("timestamps");
+    f
+}
+```
+
+### `service_a/Cargo.toml`
+
+toml
+
+```toml
+[package]
+name = "service_a"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+logkit = { path = "../logkit", features = ["json"] }
+```
+
+### `service_a/src/main.rs`
+
+rust
+
+```rust
+fn main() {
+    println!("service_a запросил только фичу json у logkit");
+    println!("активные фичи в этой сборке logkit: {:?}", logkit::active_features());
+    println!("{}", logkit::log("сообщение из service_a"));
+}
+```
+
+### `service_b/Cargo.toml`
+
+toml
+
+```toml
+[package]
+name = "service_b"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+logkit = { path = "../logkit", features = ["timestamps"] }
+```
+
+### `service_b/src/main.rs`
+
+rust
+
+```rust
+fn main() {
+    println!("service_b запросил только фичу timestamps у logkit");
+    println!("активные фичи в этой сборке logkit: {:?}", logkit::active_features());
+    println!("{}", logkit::log("сообщение из service_b"));
+}
+```
+
+## Эксперимент 1 — собираем ОДНОЙ командой на всю workspace
+
+```bash
+cargo build --workspace
+```
+
+Проверил через `-v`, что реально передаётся `rustc` при компиляции `logkit`:
+
+```
+rustc --crate-name logkit ... --cfg 'feature="json"' --cfg 'feature="timestamps"' ...
+```
+
+**Один** `.rlib` для `logkit`, скомпилированный **с обеими** фичами разом, и оба бинарника линкуются именно с ним:
+
+```bash
+./target/debug/service_a
+```
+
+```
+service_a запросил только фичу json у logkit
+активные фичи в этой сборке logkit: ["json", "timestamps"]
+{"log":"[14:04:06] сообщение из service_a"}
+```
+
+```bash
+./target/debug/service_b
+```
+
+```
+service_b запросил только фичу timestamps у logkit
+активные фичи в этой сборке logkit: ["json", "timestamps"]
+{"log":"[14:04:06] сообщение из service_b"}
+```
+
+Вот она, аддитивность на практике: **`service_a` получил доступ к `timestamps`**, хотя сам её не просил — потому что `service_b` в той же сборке её запросил, а фичи в Cargo не могут "выключить" то, что запросила другая часть графа. `find target/debug/deps -name "liblogkit*.rlib" | wc -l` дал **1** — ровно одна скомпилированная версия `logkit` на двоих.
+
+## Эксперимент 2 — важный нюанс: unification происходит **в рамках одного вызова cargo**, не автоматически по всей workspace всегда
+
+Вот что я изначально упустил и стоило проверить, а не постулировать. Пересобрал с нуля и вызвал **раздельными** командами:
+
+```bash
+cargo build -p service_a   # отдельный вызов
+```
+
+```
+активные фичи в этой сборке logkit: ["json"]
+```
+
+```bash
+cargo build -p service_b   # ДРУГОЙ отдельный вызов
+```
+
+```
+активные фичи в этой сборке logkit: ["timestamps"]
+```
+
+`find ... | wc -l` дал **2** — на этот раз `logkit` скомпилирован **дважды**, с разными наборами фич, потому что каждая команда `cargo build -p X` — это **отдельное** разрешение зависимостей, видящее только явно выбранные для этого конкретного вызова пакеты (Cargo называет это режимом `selected` unification — объединяются фичи только тех пакетов, что реально участвуют в **данном** вызове). Гарантия "фичи не конфликтуют" при этом всё равно держится — просто **объём** unification зависит от того, что именно ты попросил собрать одной командой.
+
+## Итоговое правило, теперь подтверждённое, а не предполагаемое
+
+|Как собираешь|Что происходит с `logkit`|
+|---|---|
+|`cargo build --workspace` (или `cargo build` в корне workspace без `-p`)|Один `.rlib`, фичи всех участвующих пакетов объединены|
+|`cargo test --workspace`|То же самое — unification для всего набора, что тестируется в этом вызове|
+|`cargo build -p service_a` затем отдельно `cargo build -p service_b`|Два разных `.rlib` — каждый вызов резолвит фичи независимо|
+|Два пакета в одной `--workspace`-сборке требуют **несовместимых** фич одной зависимости|Ошибки компиляции быть не может (фичи всегда только _добавляют_ код, никогда не убирают) — но зависимость раздувается всеми фичами сразу, даже ненужными части потребителей|
+
+Практический вывод для тебя: если хочешь **гарантированно** воспроизводимую сборку с ожидаемым набором фич в CI — собирай `--workspace` или явно перечисляй все нужные пакеты **в одном** вызове `cargo`, а не последовательностью отдельных `cargo build -p ...`, иначе можно неожиданно получить разное поведение зависимости в зависимости от порядка/группировки команд сборки — это тот самый источник "works on my machine", который стоит держать в голове при настройке CI-пайплайна, аналогично тому, как в CMake порядок `add_subdirectory`/переиспользование одного `build/` дерева между разными `cmake --build --target` командами может повлиять на то, какие `option()`-флаги реально попали в конкретный собранный объектный файл.
 
 ## Build scripts (`build.rs`) — аналог `add_custom_command`/`configure_file`/связи с системными библиотеками через `pkg-config`
 
