@@ -1,0 +1,43 @@
+#[package]
+#name = "main"
+#version = "0.1.0"
+#edition = "2024"
+#
+#[dependencies]
+
+
+[package]
+name = "profiles"
+version = "0.1.0"
+edition = "2024"
+
+# Профиль для обычной разработки (cargo build / cargo run)
+[profile.dev]
+# без оптимизаций -- компилируется быстро
+opt-level = 0
+# полная отладочная информация для gdb/lldb
+debug = true
+# переполнение целых -- паника, а не молчаливый wraparound
+overflow-checks = true
+# инкрементальная компиляция между запусками
+incremental = true
+
+# Профиль для релиза (cargo build --release)
+[profile.release]
+# максимальная оптимизация скорости
+opt-level = 3
+# без отладочной информации -- бинарник компактнее
+debug = false
+# переполнение -- молчаливый wraparound, без проверки
+overflow-checks = false
+lto = "thin"
+# сразу убирать символы, не нужен отдельный вызов strip
+strip = true
+
+# Свой собственный профиль -- например, для профилирования
+[profile.profiling]
+# берём release как основу...
+inherits = "release"
+# ...но оставляем отладочные символы для perf/valgrind
+debug = true
+strip = false

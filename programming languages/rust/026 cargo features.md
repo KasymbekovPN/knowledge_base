@@ -500,45 +500,162 @@ cargo build -p service_b   # ДРУГОЙ отдельный вызов
 
 Это прямая параллель тому, что в CMake делают через `execute_process`, `add_custom_command`, `configure_file`, или интеграцию с `pkg-config`/`FindXXX.cmake` модулями:
 
+## Структура проекта
+
+```
+buildrs_full/
+├── Cargo.toml
+├── build.rs
+├── vendor/
+│   └── fast_math.c      ← "существующий" C-код, который нужно подключить
+└── src/
+    └── main.rs
+```
+
+## `Cargo.toml`
+
+```toml
+[package]
+name = "buildrs_full"
+version = "0.1.0"
+edition = "2021"
+build = "build.rs"
+
+[build-dependencies]
+cc = "1"
+```
+
+`[build-dependencies]` — отдельная секция, отличная от `[dependencies]`: крейт `cc` нужен **только** во время выполнения `build.rs` на этапе сборки, он не линкуется в итоговый бинарник. `build = "build.rs"` можно опустить — Cargo и так ищет `build.rs` в корне по умолчанию, но явное указание не помешает.
+
+## `vendor/fast_math.c` — имитация "существующего C/C++ кода"
+
+```c
+int fast_square(int x) {
+    return x * x;
+}
+
+long fast_factorial(int n) {
+    long result = 1;
+    for (int i = 2; i <= n; i++) {
+        result *= i;
+    }
+    return result;
+}
+```
+
+## `build.rs` — компилирует C-код и генерирует Rust-константы
+
 ```rust
 use std::env;
 use std::fs;
 use std::path::Path;
+use std::process::Command;
 
 fn main() {
+    // === Часть 1: компилируем и линкуем C-код через крейт `cc` ===
+    // Аналог add_library(fast_math STATIC vendor/fast_math.c) в CMake
+    cc::Build::new()
+        .file("vendor/fast_math.c")
+        .compile("fast_math"); // создаёт libfast_math.a и сам добавляет cargo:rustc-link-lib
+
+    println!("cargo:rerun-if-changed=vendor/fast_math.c");
+    println!("cargo:rerun-if-changed=build.rs");
+
+    // === Часть 2: генерируем Rust-код на этапе сборки ===
     let out_dir = env::var("OUT_DIR").unwrap();
-    let dest_path = Path::new(&out_dir).join("generated.rs");
+    let dest_path = Path::new(&out_dir).join("build_info.rs");
+
+    let git_hash = Command::new("git")
+        .args(["rev-parse", "--short", "HEAD"])
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .unwrap_or_else(|| "unknown".to_string());
+    let git_hash = git_hash.trim();
+
+    let profile = env::var("PROFILE").unwrap(); // "debug" или "release"
 
     fs::write(
         &dest_path,
-        "pub fn generated_message() -> &'static str { \"сгенерировано во время сборки, а не запуска\" }",
+        format!(
+            r#"
+pub const GIT_HASH: &str = "{git_hash}";
+pub const BUILD_PROFILE: &str = "{profile}";
+pub const TARGET_OS: &str = "{}";
+"#,
+            env::var("CARGO_CFG_TARGET_OS").unwrap()
+        ),
     ).unwrap();
+}
+```
 
-    println!("cargo:rerun-if-changed=build.rs");
+## `src/main.rs` — использует и сгенерированный код, и скомпилированный C
 
-    if env::var("CARGO_CFG_TARGET_OS").unwrap() == "linux" {
-        println!("cargo:rustc-cfg=platform_linux");
+```rust
+include!(concat!(env!("OUT_DIR"), "/build_info.rs"));
+
+unsafe extern "C" {
+    fn fast_square(x: i32) -> i32;
+    fn fast_factorial(n: i32) -> i64;
+}
+
+fn main() {
+    println!("собрано в профиле: {BUILD_PROFILE}");
+    println!("git hash: {GIT_HASH}");
+    println!("целевая ОС: {TARGET_OS}");
+
+    // вызов C-функции требует unsafe -- компилятор не может проверить её контракт
+    unsafe {
+        println!("fast_square(7) = {}", fast_square(7));
+        println!("fast_factorial(10) = {}", fast_factorial(10));
     }
 }
 ```
 
-```rust
-// src/main.rs
-include!(concat!(env!("OUT_DIR"), "/generated.rs"));
+## Реальный прогон
 
-fn main() {
-    println!("{}", generated_message());
-    #[cfg(platform_linux)]
-    println!("собрано на Linux (через cargo:rustc-cfg из build.rs)");
-}
+```bash
+cargo run
 ```
 
-Вывод:
+```
+   Compiling cc v1.4.5
+   Compiling buildrs_full v0.1.0
+    Finished dev [unoptimized + debuginfo] target(s)
+     Running `target/debug/buildrs_full`
+собрано в профиле: debug
+git hash: 5907a85
+целевая ОС: linux
+fast_square(7) = 49
+fast_factorial(10) = 3628800
+```
+
+Проверил, что артефакт C-компиляции реально появился на диске:
 
 ```
-сгенерировано во время сборки, а не запуска
-собрано на Linux (через cargo:rustc-cfg из build.rs)
+target/debug/build/buildrs_full-.../out/fast_math.o
+target/debug/build/buildrs_full-.../out/libfast_math.a
 ```
+
+И что `rerun-if-changed` действительно управляет пересборкой — без изменений повторный `cargo build` не трогает ничего (`Finished ... in 0.03s`), а после правки `fast_math.c` пересобирается заново:
+
+```
+cargo build              # без изменений -- мгновенно, ничего не компилируется
+# правим vendor/fast_math.c
+cargo build              # пересобирает, потому что rerun-if-changed отследил изменение файла
+```
+
+## Ключевые моменты по частям
+
+**`unsafe extern "C" { ... }`** — блок деклараций внешних функций (объявляешь сигнатуру, реализация приходит извне, из слинкованной C-библиотеки) — прямой аналог `extern "C"` объявлений в заголовочных файлах C++ при подключении C-библиотеки. Каждый вызов такой функции требует `unsafe`, потому что компилятор Rust не может проверить, что C-сторона реально соблюдает объявленный контракт (правильные типы, отсутствие UB внутри) — это ровно то доверие, которое ты обычно оказываешь любому внешнему C-коду в C++ проекте, просто здесь оно явно помечено в каждой точке вызова.
+
+**`cc::Build::new().file(...).compile(...)`** — под капотом вызывает системный компилятор (`cc`/`gcc`/`clang`/`cl.exe` в зависимости от платформы, автоопределяется), собирает `.o`, архивирует в статическую библиотеку и **сам** генерирует нужную директиву `cargo:rustc-link-lib=static=fast_math` — тебе не нужно писать её руками, крейт `cc` берёт эту рутину на себя (то, что в CMake делает `add_library` + автоматическая привязка через `target_link_libraries`).
+
+**`OUT_DIR`** — единственное место, куда `build.rs` разрешено писать файлы; `include!(concat!(env!("OUT_DIR"), "/build_info.rs"))` — способ подключить сгенерированный файл прямо в дерево модулей текущего крейта, как обычный `#include` в C++ на уровне текста.
+
+**`CARGO_CFG_TARGET_OS`/`PROFILE`** — переменные окружения, которые Cargo сам прокидывает в `build.rs` — не нужно передавать их вручную через `-D` флаги, как часто приходится делать в CMake для похожих целей.
+
+Если этот пример хочешь получить как реальные файлы (не только текст в чате) — могу собрать их через `create_file`/`present_files`, чтобы можно было сразу скачать и перенести к себе в проект.
 
 Ключевые моменты, знакомые тебе по CMake:
 
@@ -555,17 +672,139 @@ fn main() {
 
 ## Профили сборки (`[profile.dev]`/`[profile.release]`) — аналог CMake Build Types
 
-Уже использовали `[profile.dev] panic = "abort"` в теме про `panic!`. Общая механика:
+## Проект целиком
 
-```toml
-[profile.release]
-opt-level = 3
-lto = true
-codegen-units = 1
-panic = "abort"
+```
+profiles_demo/
+├── Cargo.toml
+└── src/
+    └── main.rs
 ```
 
-Прямой аналог `CMAKE_BUILD_TYPE=Release` + ручной настройки флагов оптимизации (`-O3`), LTO (`INTERPROCEDURAL_OPTIMIZATION`), но с той разницей, что в Cargo профили — **часть манифеста проекта**, не выбор при вызове `cmake` (`cargo build` = dev-профиль по умолчанию, `cargo build --release` = release-профиль, без отдельного шага "configure" с указанием типа сборки заново).
+### `Cargo.toml`
+
+```toml
+[package]
+name = "profiles_demo"
+version = "0.1.0"
+edition = "2021"
+
+# Профиль для обычной разработки (cargo build / cargo run)
+[profile.dev]
+opt-level = 0          # без оптимизаций -- компилируется быстро
+debug = true            # полная отладочная информация для gdb/lldb
+overflow-checks = true  # переполнение целых -- паника, а не молчаливый wraparound
+incremental = true      # инкрементальная компиляция между запусками
+
+# Профиль для релиза (cargo build --release)
+[profile.release]
+opt-level = 3           # максимальная оптимизация скорости
+debug = false           # без отладочной информации -- бинарник компактнее
+overflow-checks = false # переполнение -- молчаливый wraparound, без проверки
+lto = "thin"
+strip = true            # сразу убирать символы, не нужен отдельный вызов strip
+
+# Свой собственный профиль -- например, для профилирования
+[profile.profiling]
+inherits = "release"    # берём release как основу...
+debug = true            # ...но оставляем отладочные символы для perf/valgrind
+strip = false
+```
+
+### `src/main.rs`
+
+```rust
+fn slow_sum(n: u64) -> u64 {
+    let mut sum: u64 = 0;
+    for i in 0..n {
+        sum = sum.wrapping_add(i);
+    }
+    sum
+}
+
+fn main() {
+    let start = std::time::Instant::now();
+    let result = slow_sum(200_000_000);
+    let elapsed = start.elapsed();
+    println!("результат: {result}, время: {elapsed:?}");
+
+    // black_box -- не даём компилятору вычислить это на этапе компиляции
+    let x: u8 = std::hint::black_box(250);
+    let y: u8 = std::hint::black_box(10);
+    let sum = x + y; // переполнение u8 (максимум 255)
+    println!("250u8 + 10u8 = {sum}");
+
+    debug_assert!(1 + 1 == 3, "эта проверка должна выполняться только в dev");
+    println!("debug_assert! не сработал -- значит, мы в release");
+}
+```
+
+## Три реальных прогона — вот что каждая настройка меняет на практике
+
+### `cargo build` (dev)
+
+```
+результат: 19999999900000000, время: 1.141547414s
+thread 'main' panicked at src/main.rs:19:15:
+attempt to add with overflow
+```
+
+exit code: **101**
+
+`overflow-checks = true` поймал переполнение `u8` и **уронил программу** — именно так должен вести себя dev-билд: лучше упасть сразу на баге, чем незаметно получить неверные данные.
+
+### `cargo build --release`
+
+```
+результат: 19999999900000000, время: 136ns
+250u8 + 10u8 = 4
+debug_assert! не сработал -- значит, мы в release
+```
+
+exit code: **0**
+
+Три вещи разом:
+
+- **Никакой паники** — `overflow-checks = false` даёт молчаливый wraparound: `250 + 10 = 260`, а `260 mod 256 = 4`.
+- **Время упало с 1.14 секунды до 136 наносекунд** — не потому что "release просто быстрее", а потому что `opt-level = 3` в связке с `overflow-checks = false` позволил LLVM доказать, что весь цикл сводится к замкнутой формуле (сумма арифметической прогрессии), и он **выкинул цикл целиком**, вычислив результат как константу. С `overflow-checks = true` LLVM не может себе этого позволить (какая-то итерация потенциально должна была бы запаниковать, значит цикл нельзя просто убрать).
+- `debug_assert!` — no-op, как и должно быть в release.
+
+### Размеры бинарников — наглядно
+
+```
+target/debug/profiles_demo:   13 285 464 байт  (~13 МБ)
+target/release/profiles_demo:    383 384 байт  (~374 КБ)
+```
+
+Разница почти в **35 раз** — за счёт отладочных символов (`debug = true` vs `false`), `strip = true`, и того, что release-версия физически меньше кода производит (агрессивный инлайнинг + удаление мёртвого кода).
+
+## Кастомный профиль — `inherits` для промежуточных сценариев
+
+```bash
+cargo build --profile profiling
+```
+
+```
+результат: 19999999900000000, время: 121ns
+```
+
+```
+target/profiling/profiles_demo: 6 699 192 байт  (~6.7 МБ)
+```
+
+`profiling` даёт ту же скорость, что `release` (121ns — в пределах шума измерения относительно 136ns), но сохраняет отладочные символы (`debug = true`, `strip = false`) — компромисс специально под задачу "профилировать оптимизированный код через `perf`/`valgrind`/`gdb`, видя при этом имена функций и номера строк", чего `release` с `strip = true` не даст, а `dev` не даст представительной картины производительности из-за отсутствия оптимизаций. `inherits = "release"` избавляет от копирования всех остальных настроек `release`-профиля заново — переопределяются только явно указанные поля.
+
+## Сводная таблица того, что реально изменилось
+
+|Настройка|dev|release|Что видно в эксперименте|
+|---|---|---|---|
+|`opt-level`|0|3|1.14с → 136нс (цикл свёрнут в константу)|
+|`overflow-checks`|true|false|паника vs молчаливый `4` вместо `260`|
+|`debug`|true|false|13 МБ vs 374 КБ|
+|`strip`|(нет)|true|символы полностью убраны из release|
+|Кастомный `profiling`|—|`inherits = "release"` + `debug = true`|скорость release, но с символами (6.7 МБ)|
+
+Прямая параллель с CMake: `opt-level`/`debug` — это то, что задаёт `CMAKE_BUILD_TYPE=Debug/Release/RelWithDebInfo` разом (кстати, `RelWithDebInfo` в CMake — практически то же самое, что наш кастомный `profiling`-профиль здесь: оптимизация + отладочные символы одновременно). `overflow-checks` — это то, для чего в C++ обычно используют UBSan (`-fsanitize=undefined` включает проверку переполнения в дебаг-сборках) — только в Rust это встроенная опция профиля, а не отдельный санитайзер, который нужно подключать через compiler flags вручную.
 
 ## Cross-compilation — `--target` вместо toolchain-файла
 
@@ -597,52 +836,3 @@ cargo build --target x86_64-pc-windows-gnu
 
 Раз у тебя уже была отдельная сессия по vcpkg (triplets, CRT linkage, binary caching, custom ports, CI/CD) — стоит явно отметить: у Cargo **нет** прямого аналога vcpkg triplets/CRT linkage вопросов (`/MD` vs `/MT`) в том же объёме сложности, потому что Rust-крейты почти всегда собираются из исходников под конкретный target triple компилятором самого Cargo, а не связываются как заранее собранные бинарные пакеты под конкретную комбинацию CRT/архитектуры — весь этот класс проблем (ABI-совместимость собранных бинарников под разные CRT) в Cargo-экосистеме почти не существует именно потому, что зависимости почти всегда собираются локально из исходников, а не подтягиваются как pre-built бинарники.
 
-Хочешь разобрать `cargo test`/тестирование (`#[test]`, интеграционные тесты, `criterion` для бенчмарков — прямая параллель CTest/GoogleTest/Catch2, которые ты проходил) — это логичное продолжение темы тулинга, или перейти к следующему пункту Фазы 4 — `clippy`/`rustfmt`?
-
----
----
-
-**Фаза 0 — быстрый рефреш (можно за один присест)** 
-- [x] Ownership/borrowing/lifetimes ещё раз, но через призму "как это соотносится с RAII и move-семантикой в C++". Основная цель — не учить с нуля, а закрыть пробелы и зафиксировать терминологию (move, Copy, borrow checker, NLL). (2026.07.27)
-- [x] точка входа в rust (2026.07.27)
-- [x] свободные функции в rust (2026.07.27)
-- [x] функции как аргументы (2026.07.27)
-- [x] модификаторы, передача по ссылке, передача по значению (2026.07.28)
-- [x] let в rust (2026.07.28)
-- [x] match в rust (2026.07.28)
-- [x] ветвления в rust (2026.07.28)
-- [x] циклы в rust (2026.07.28)
-- [x] разобрать конкретно "борьбу с borrow checker" на примерах — типичные ошибки (2026.07.28)
-- [x] создание "класса", видимость, поля, конструкторы, деструкторы, методы, статические методы и поля (2026.07.28)
-- [x] макросы name!(...) (2026.07.30)
-- [x] macro_rules example (2026.07.30)
-
-**Фаза 1 — типовая система и абстракции** 
-- [x] Traits и generics vs шаблоны C++ и виртуальные функции; (2026.07.30)
-- [x] trait objects (`dyn Trait`) vs vtable; (2026.07.30)
-- [x] impl trait (2026.07.30)
-- [x] enums как ADT и pattern matching (это то, чего в C++ нет вообще); (2026.07.30)
-- [x] обработка ошибок — `Result`/`Option`, `?`, `thiserror`/`anyhow` вместо исключений. (2026.07.31)
-
-**Фаза 2 — продвинутое владение памятью** 
-- [x] `Box` в rust, (2026.07.31)
-- [x] `Rc`/`Arc` в rust (2026.08.02)
-- [x] `RefCell`/`Cell`, interior mutability в rust (2026.08.03)
-- [x] продвинутые lifetimes (HRTB) в rust с примерами (2026.08.03)
-- [x] продвинутые lifetimes (variance) в rust с примерами (2026.08.03)
-- [x] сравнение с `unique_ptr`/`shared_ptr` — где Rust строже, а где придётся обходить borrow checker осознанно. (2026.08.03)
-
-**Фаза 3 — конкурентность и async** 
-- [x] Потоки, `Mutex`/`RwLock`, каналы (`mpsc`);  "fearless concurrency" и почему это гарантируется на уровне типов, в отличие от C++ memory model; (2026.08.04)
-- [x] `async`/`await`, `tokio`, сравнение с корутинами C++20/Boost.Asio, с которыми ты уже плотно работал. (2026.08.04)
-
-**Фаза 4 — инструментарий и экосистема** 
-- [ ] Cargo (workspaces, features, build scripts) как аналог CMake/vcpkg;
-- [ ] тестирование и `criterion` для бенчмарков; `clippy`/`rustfmt`;
-- [ ] управление зависимостями и crates.io.
-
-**Фаза 5 — unsafe Rust и интероп с C++** 
-- [ ] `unsafe`, raw pointers, `cxx`/`bindgen`/`cbindgen` — это прямо релевантно твоей текущей работе с монолитом на C++: как встраивать Rust-компоненты в существующую C++-кодовую базу и наоборот.
-
-**Фаза 6 — практика** 
-- [ ] Итоговый проект, завязанный на Фазы 3–5: например, сетевой сервис на `tokio` или Rust-модуль, подключённый к C++ через FFI, с Docker-сборкой в довесок.
