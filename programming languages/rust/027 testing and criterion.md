@@ -674,59 +674,174 @@ note: the function `internal_helper` is defined here
 ## Сравнение с CTest — какому паттерну это аналогично
 
 Каждый файл `tests/*.rs` — отдельный **исполняемый файл теста**, ровно как отдельный `add_executable(cart_tests cart_tests.cpp)` + `add_test(NAME cart_tests COMMAND cart_tests)` в CMake — именно поэтому `cargo test` печатает их по отдельности (`Running tests/cart_tests.rs`, `Running tests/discount_tests.rs`), а не сливает в один общий прогон. `tests/common/mod.rs` — аналог общего `test_helpers.h`/`test_helpers.cpp`, который линкуется в несколько тестовых таргетов CMake, не будучи сам по себе тестовым таргетом.
-
-
----
----
-
-```rust
-// tests/integration_test.rs
-use test_demo::add;
-
-#[test]
-fn test_public_api() {
-    assert_eq!(add(10, 20), 30);
-}
-```
-
-Каждый файл в `tests/` компилируется как **отдельный** крейт, который зависит от твоей библиотеки как внешний потребитель — видит только `pub`-API, ничего приватного. Прямая параллель раздельным CTest-таргетам, тестирующим публичный интерфейс библиотеки через её заголовки, а не внутренности `.cpp`-файлов.
-
 ### Doc-тесты — то, чего в C++/GoogleTest нет вообще
 
+## Проект целиком
+
+```
+doctest_demo/
+├── Cargo.toml
+└── src/
+    └── lib.rs
+```
+
+### `Cargo.toml`
+
+```toml
+[package]
+name = "doctest_demo"
+version = "0.1.0"
+edition = "2021"
+```
+
+### `src/lib.rs`
+
 ```rust
+//! # doctest_demo
+//!
+//! Небольшая библиотека для демонстрации doc-тестов.
+//!
+//! Даже этот блок верхнеуровневой документации (`//!`) может содержать
+//! исполняемый пример -- он тоже будет скомпилирован и прогнан `cargo test`:
+//!
+//! ```
+//! assert_eq!(doctest_demo::add(2, 2), 4);
+//! ```
+
+use std::fmt;
+
 /// Складывает два числа.
 ///
 /// # Examples
 ///
 /// ```
-/// assert_eq!(test_demo::add(2, 3), 5);
+/// assert_eq!(doctest_demo::add(2, 3), 5);
 /// ```
-pub fn add(a: i32, b: i32) -> i32 { a + b }
+pub fn add(a: i32, b: i32) -> i32 {
+    a + b
+}
+
+#[derive(Debug, PartialEq)]
+pub struct ParseTempError;
+
+impl fmt::Display for ParseTempError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "не удалось распознать температуру")
+    }
+}
+
+/// Парсит строку вида "36.6C" в градусы Цельсия.
+///
+/// # Examples
+///
+/// ```
+/// # fn main() -> Result<(), doctest_demo::ParseTempError> {
+/// let c = doctest_demo::parse_celsius("36.6C")?;
+/// assert_eq!(c, 36.6);
+/// # Ok(())
+/// # }
+/// ```
+pub fn parse_celsius(s: &str) -> Result<f64, ParseTempError> {
+    s.strip_suffix('C')
+        .and_then(|num| num.parse::<f64>().ok())
+        .ok_or(ParseTempError)
+}
+
+/// Делит `a` на `b`.
+///
+/// # Panics
+///
+/// Паникует, если `b` равно нулю:
+///
+/// ```should_panic
+/// doctest_demo::divide(10, 0);
+/// ```
+///
+/// Обычный успешный случай -- отдельный блок в том же комментарии:
+///
+/// ```
+/// assert_eq!(doctest_demo::divide(10, 2), 5);
+/// ```
+pub fn divide(a: i32, b: i32) -> i32 {
+    if b == 0 {
+        panic!("деление на ноль");
+    }
+    a / b
+}
+
+/// `no_run` -- код КОМПИЛИРУЕТСЯ, но не выполняется.
+///
+/// ```no_run
+/// let response = doctest_demo::fetch_from_network("http://example.com");
+/// println!("{response}");
+/// ```
+pub fn fetch_from_network(url: &str) -> String {
+    format!("ответ от {url}")
+}
+
+/// `compile_fail` -- тест ПРОЙДЕН, если код НЕ компилируется.
+///
+/// ```compile_fail
+/// let s = String::from("hello");
+/// let s2 = s;
+/// println!("{}", s); // ОШИБКА: s перемещён в s2
+/// ```
+pub fn move_example() {}
+
+/// `ignore` -- код вообще не трогается cargo test.
+///
+/// ```ignore
+/// let x = doctest_demo::not_yet_implemented_function();
+/// ```
+pub fn placeholder() {}
 ```
 
-Прогнал полный `cargo test` — вот что реально происходит на всех трёх уровнях сразу:
+## Реальный прогон
 
-```
-     Running unittests src/lib.rs (target/debug/deps/test_demo-...)
-running 5 tests
-test tests::slow_test ... ignored
-test tests::test_add ... ok
-test tests::test_add_negative ... ok
-test tests::test_add_zero ... ok
-test tests::test_divide_by_zero_panics - should panic ... ok
-test result: ok. 4 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out
-
-     Running tests/integration_test.rs (target/debug/deps/integration_test-...)
-running 1 test
-test test_public_api ... ok
-
-   Doc-tests test_demo
-running 1 test
-test src/lib.rs - add (line 5) ... ok
+```bash
+cargo test
 ```
 
-Код внутри тройных обратных кавычек в `///`-комментарии **реально компилируется и выполняется** как тест при каждом `cargo test` — это гарантирует, что примеры в документации никогда не устареют относительно реального API (классическая проблема в C++/Doxygen — комментарии с примерами кода протухают молча, компилятор их не проверяет никак). Прямого аналога в GoogleTest/Catch2 нет — ближайшее по духу, пожалуй, Python `doctest`, но для C++ такой встроенной штуки не существует.
+```
+   Doc-tests doctest_demo
 
+running 8 tests
+test src/lib.rs - (line 8) ... ok
+test src/lib.rs - add (line 20) ... ok
+test src/lib.rs - divide (line 65) ... ok
+test src/lib.rs - divide (line 72) ... ok
+test src/lib.rs - fetch_from_network (line 89) - compile ... ok
+test src/lib.rs - move_example (line 105) - compile fail ... ok
+test src/lib.rs - parse_celsius (line 45) ... ok
+test src/lib.rs - placeholder (line 117) ... ignored
+
+test result: ok. 7 passed; 0 failed; 1 ignored
+```
+
+## Разбор каждого атрибута
+
+**Обычный блок (` ``` ` без атрибутов)** — компилируется **и** выполняется, провал `assert_eq!` внутри = провал теста. Строка `test src/lib.rs - (line 8)` без имени функции — это тест из `//!`-комментария в самом верху файла (модульная документация, а не документация конкретного элемента).
+
+**Скрытые строки (`#` )** — строка, начинающаяся с `#` внутри блока кода, компилируется и выполняется как обычно, но **не отображается** в сгенерированной HTML-документации (`cargo doc`). Использовал это, чтобы обернуть пример с `?` в `fn main() -> Result<...>` — читателю документации не нужно видеть эту обвязку, но компилятору она необходима, раз `?` требует, чтобы окружающая функция возвращала совместимый `Result`.
+
+**`should_panic`** — тест **обязан** запаниковать, иначе провалится. Проверил обратный случай (что будет, если код перестанет паниковать) в прошлом примере с обычными `#[test]` — здесь то же самое, только для doc-теста.
+
+**`no_run`** — компилируется (значит, гарантированно синтаксически и типово валиден, не протухнет при рефакторинге сигнатуры функции), но не запускается. Нужен для примеров с сетью/файлами/долгим ожиданием, которые нежелательно реально выполнять при каждом `cargo test`, но которые всё равно должны оставаться корректными относительно текущего API.
+
+**`compile_fail`** — тест **пройден**, если код **не** компилируется. Я специально проверил обратную сторону: сделал пример из `move_example` валидным (заменил использование перемещённой переменной на корректное) — тест немедленно провалился с точным диагнозом:
+
+```
+test src/lib.rs - move_example (line 105) - compile fail ... FAILED
+Test compiled successfully, but it's marked `compile_fail`.
+```
+
+Это доказывает, что атрибут реально проверяет **отсутствие** компиляции, а не просто декоративная пометка — если кто-то в будущем случайно изменит API так, что пример из документации, иллюстрирующий ошибку, вдруг станет компилироваться, `cargo test` на это укажет.
+
+**`ignore`** — код не компилируется и не выполняется вообще, только показывается как пример в документации. Использовать для псевдокода, будущего API, или примеров, зависящих от вещей, которых точно нет в тестовом окружении.
+
+## Прямое сравнение с C++/Doxygen
+
+В Doxygen `@code`/`@endcode`-блоки — это **чистый текст**, никак не проверяемый компилятором. Пример в комментарии может протухнуть при любом рефакторинге сигнатуры, и единственный способ узнать об этом — человек, читающий документацию, заметит несоответствие сам. В Rust каждый из этих блоков (кроме `ignore`) — это **реальный, скомпилированный и (кроме `no_run`) выполненный** код, гарантированно синхронизированный с текущим состоянием API — расхождение документации и кода здесь физически невозможно молча, оно ловится тем же `cargo test`, что гоняет обычные unit- и интеграционные тесты.
 ### Фильтрация и вывод — сравнение с GoogleTest
 
 ```bash
@@ -740,39 +855,6 @@ cargo test -- --ignored # запустить только ранее пропу�
 
 Встроенного (`std`) бенчмаркинга в стабильном Rust нет вообще (`#[bench]` существует только в nightly и считается устаревшим подходом) — `criterion` фактически стандарт индустрии, аналог Google Benchmark в мире C++.
 
-```toml
-[dev-dependencies]
-criterion = "0.4"
-
-[[bench]]
-name = "add_bench"
-harness = false
-```
-
-```rust
-use criterion::{criterion_group, criterion_main, Criterion, black_box};
-use test_demo::add;
-
-fn bench_add(c: &mut Criterion) {
-    c.bench_function("add 2+3", |b| {
-        b.iter(|| add(black_box(2), black_box(3)))
-    });
-}
-
-criterion_group!(benches, bench_add);
-criterion_main!(benches);
-```
-
-Реально прогнал (сборка транзитивных зависимостей заняла время, локальный toolchain старый, но результат настоящий):
-
-```
-Benchmarking add 2+3: Warming up for 3.0000 s
-Benchmarking add 2+3: Collecting 100 samples in estimated 5.0000 s (7.0B iterations)
-Benchmarking add 2+3: Analyzing
-add 2+3                 time:   [718.75 ps 722.42 ps 726.50 ps]
-Found 7 outliers among 100 measurements (7.00%)
-```
-
 Ключевые вещи, которые отличают `criterion` от "измерить `std::chrono` вручную вокруг цикла" (частый ручной подход в C++ без Google Benchmark) и приближают к возможностям самого Google Benchmark:
 
 - **`black_box`** — прямой аналог `benchmark::DoNotOptimize`/`ClobberMemory` в Google Benchmark: запрещает компилятору "схитрить" — заинлайнить константный аргумент и вычислить результат на этапе компиляции, что сделало бы бенчмарк бессмысленным (LLVM достаточно умный, чтобы просто вычислить `add(2, 3)` в константу `5` во время компиляции, если не помешать).
@@ -780,6 +862,178 @@ Found 7 outliers among 100 measurements (7.00%)
 - **Обнаружение выбросов** (`Found 7 outliers among 100 measurements`) — сигнализирует, если часть измерений искажена внешним шумом (планировщик ОС, другие процессы), не давая ложной уверенности в точности.
 - **Regression detection** — при повторном запуске `criterion` сравнивает с предыдущим прогоном и явно сообщает "стало быстрее/медленнее на X%, статистически значимо/незначимо" — то, что в Google Benchmark обычно требует отдельной обвязки поверх сырых чисел.
 - `cargo bench` генерирует HTML-отчёты с графиками (если включён `plotters`, что и подтянулось в зависимостях) — аналог того, что для Google Benchmark обычно делают через сторонние скрипты постобработки JSON-вывода.
+
+## Проект целиком
+
+```
+criterion_demo/
+├── Cargo.toml
+├── src/
+│   └── lib.rs
+└── benches/
+    └── sort_bench.rs
+```
+
+### `Cargo.toml`
+
+```toml
+[package]
+name = "criterion_demo"
+version = "0.1.0"
+edition = "2021"
+
+[dev-dependencies]
+criterion = "0.4"
+
+[[bench]]
+name = "sort_bench"
+harness = false
+```
+
+`harness = false` — обязательная строка: говорит Cargo не использовать встроенный тестовый harness для этого файла, потому что `criterion` предоставляет свой собственный через `criterion_main!`.
+
+### `src/lib.rs` — то, что бенчмаркуем: две реализации сортировки
+
+```rust
+/// Сортировка вставками -- O(n^2)
+pub fn insertion_sort(data: &mut [i32]) {
+    for i in 1..data.len() {
+        let mut j = i;
+        while j > 0 && data[j - 1] > data[j] {
+            data.swap(j - 1, j);
+            j -= 1;
+        }
+    }
+}
+
+/// Стандартная сортировка -- O(n log n)
+pub fn std_sort(data: &mut [i32]) {
+    data.sort();
+}
+
+/// n псевдослучайных чисел без внешних крейтов (линейный конгруэнтный генератор)
+pub fn generate_data(n: usize, seed: u64) -> Vec<i32> {
+    let mut state = seed;
+    (0..n)
+        .map(|_| {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1);
+            ((state >> 33) as i32).abs() % 100_000
+        })
+        .collect()
+}
+```
+
+### `benches/sort_bench.rs`
+
+```rust
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion_demo::{generate_data, insertion_sort, std_sort};
+
+fn bench_single_size(c: &mut Criterion) {
+    let data = generate_data(1000, 42);
+
+    c.bench_function("insertion_sort 1000", |b| {
+        b.iter(|| {
+            let mut d = data.clone();
+            insertion_sort(black_box(&mut d));
+        })
+    });
+
+    c.bench_function("std_sort 1000", |b| {
+        b.iter(|| {
+            let mut d = data.clone();
+            std_sort(black_box(&mut d));
+        })
+    });
+}
+
+fn bench_across_sizes(c: &mut Criterion) {
+    let mut group = c.benchmark_group("sorting");
+
+    for size in [10, 100, 1_000, 5_000] {
+        let data = generate_data(size, 42);
+        group.throughput(Throughput::Elements(size as u64));
+
+        group.bench_with_input(BenchmarkId::new("insertion_sort", size), &data, |b, data| {
+            b.iter(|| {
+                let mut d = data.clone();
+                insertion_sort(black_box(&mut d));
+            })
+        });
+
+        group.bench_with_input(BenchmarkId::new("std_sort", size), &data, |b, data| {
+            b.iter(|| {
+                let mut d = data.clone();
+                std_sort(black_box(&mut d));
+            })
+        });
+    }
+
+    group.finish();
+}
+
+criterion_group!(benches, bench_single_size, bench_across_sizes);
+criterion_main!(benches);
+```
+
+## Реальный прогон — `cargo bench`
+
+```
+insertion_sort 1000     time:   [434.21 µs 442.75 µs 456.46 µs]
+std_sort 1000           time:   [28.899 µs 29.031 µs 29.183 µs]
+
+sorting/insertion_sort/10    time: [33.346 ns 33.454 ns 33.580 ns]
+sorting/std_sort/10          time: [33.755 ns 34.203 ns 34.708 ns]
+
+sorting/insertion_sort/100   time: [4.3888 µs 4.3970 µs 4.4063 µs]
+sorting/std_sort/100         time: [1.5735 µs 1.5843 µs 1.5990 µs]
+
+sorting/insertion_sort/1000  time: [445.14 µs 449.55 µs 454.54 µs]
+sorting/std_sort/1000        time: [28.922 µs 29.041 µs 29.172 µs]
+
+sorting/insertion_sort/5000  time: [11.148 ms 11.184 ms 11.228 ms]
+sorting/std_sort/5000        time: [228.29 µs 230.14 µs 232.44 µs]
+```
+
+Данные полностью соответствуют теории: на `n=10` разница между O(n²) и O(n log n) практически в шуме измерения (33.5нс vs 33.8нс — сортировка вставками даже чуть быстрее на крошечных массивах за счёт меньшего оверхеда). На `n=5000` разница уже колоссальна: **11.18 мс** против **230 мкс** — почти в 50 раз, что и ожидается от квадратичного роста при увеличении n в 500 раз от размера 10.
+
+## Regression detection — сработал сам, без настройки
+
+Прогнал `cargo bench` **второй раз** — criterion автоматически сравнил с предыдущим прогоном:
+
+```
+sorting/insertion_sort/10
+                        change: [+0.0301% +0.6162% +1.2273%] (p = 0.04 < 0.05)
+
+sorting/std_sort/100
+                        change: [+1.2955% +2.1226% +3.0640%] (p = 0.00 < 0.05)
+```
+
+`p = 0.00 < 0.05` означает "изменение статистически значимо" — criterion сам хранит историю прогонов в `target/criterion/` и явно сообщает не просто числа, а **является ли** разница между запусками реальной или шумом измерения. Это именно то, что обычно требует отдельной обвязки поверх сырых чисел Google Benchmark — здесь встроено в сам инструмент.
+
+## `Throughput::Elements` — сравнение в "элементах в секунду", не только во времени
+
+```rust
+group.throughput(Throughput::Elements(size as u64));
+```
+
+Это добавляет вторую метрику в отчёт (`thrpt:`), позволяющую сравнивать эффективность на **разных** размерах входа в одной шкале — полезно, когда интересует не "сколько заняло на этом конкретном n", а "сколько элементов в секунду обрабатывает алгоритм" как функция масштабируемости. Для байтовых операций есть аналог `Throughput::Bytes(n)` — типичное применение для бенчмарков сериализации/парсинга.
+
+## `BenchmarkGroup` — сравнительный отчёт вместо разрозненных чисел
+
+`c.benchmark_group("sorting")` группирует связанные бенчмарки так, что при генерации HTML-отчёта (`target/criterion/report/index.html`, если установлен `gnuplot` в системе) criterion рисует их **на одном графике** для прямого визуального сравнения — вместо того, чтобы вручную сопоставлять числа из разных прогонов, как пришлось бы делать с сырым Google Benchmark выводом без дополнительной постобработки.
+
+## Параллель с твоим Google Benchmark опытом
+
+| Google Benchmark (C++)                                         | criterion (Rust)                                     |
+| -------------------------------------------------------------- | ---------------------------------------------------- |
+| `BENCHMARK(BM_Function)`                                       | `c.bench_function("name", \|b\| ...)`                |
+| `benchmark::DoNotOptimize(x)`                                  | `black_box(x)`                                       |
+| `->Range(8, 8<<10)` для разных размеров                        | `for size in [...]` внутри `bench_with_input`        |
+| `->Unit(benchmark::kMillisecond)`                              | Автоматический выбор единиц измерения                |
+| Сравнение прогонов вручную (сохранить JSON, сравнить скриптом) | Встроенное `change:`/regression detection из коробки |
+| `state.SetItemsProcessed(state.iterations() * n)`              | `Throughput::Elements(n)`                            |
+| Группировка через `BENCHMARK_TEMPLATE`/фикстуры                | `benchmark_group`                                    |
 
 ## `clippy` — линтер, аналог `clang-tidy`
 
@@ -825,46 +1079,221 @@ warning: the loop variable `i` is only used to index `v`
 
 ## `rustfmt` — форматтер, аналог `clang-format`
 
-```rust
-fn add(a:i32,b:i32)->i32{a+b}
-fn main(){
-        let x=5;
-    let    y = 10;
-    if x>0{println!("{}",add(x,y));}
-}
+----
+---
+## Проект целиком
+
+```
+rustfmt_demo/
+├── Cargo.toml
+├── rustfmt.toml
+└── src/
+    └── main.rs
 ```
 
-После `cargo fmt`:
+### Исходный код (намеренно неотформатированный)
 
 ```rust
-fn add(a: i32, b: i32) -> i32 {
-    a + b
+use std::collections::HashMap;
+use std::fmt;
+use std::io::Read;
+
+struct Point{x:f64,y:f64,label:String}
+
+impl Point{
+fn new(x:f64,y:f64)->Self{
+Point{x,y,label:String::new()}
 }
-fn main() {
-    let x = 5;
-    let y = 10;
-    if x > 0 {
-        println!("{}", add(x, y));
+
+    fn distance(&self,other:&Point)->f64{
+        ((self.x-other.x).powi(2)+(self.y-other.y).powi(2)).sqrt()
     }
 }
-```
 
-Полностью нормализовано за один прогон — прямой аналог `clang-format -i`. Настройка через `rustfmt.toml` в корне проекта — проверил на практике:
+fn classify(n:i32)->&'static str{
+    match n {
+0 => "ноль",
+        1..=9=>"однозначное",
+    _=>"многозначное"
+    }
+}
 
-```toml
-max_width = 60
-tab_spaces = 2
-```
+fn main(){
+    let p1=Point::new(0.0,0.0);
+    let p2 = Point::new(3.0,4.0);
+    println!("{}",p1.distance(&p2));
 
-С этим конфигом отступ реально стал 2 пробела вместо стандартных 4:
+    let numbers=vec![1,2,3,4,5];
+    let doubled:Vec<i32>=numbers.iter().map(|x|x*2).filter(|x|*x>4).collect();
+    println!("{:?}",doubled);
 
-```rust
-fn add(a: i32, b: i32) -> i32 {
-  a + b
+    let mut map=HashMap::new();
+    map.insert("a",1);
+    map.insert("b",2);
+
+    for(k,v) in &map{
+        println!("{}: {}",k,v);
+    }
+
+    // Матрица, размеченная вручную для читаемости -- НЕ должна переформатироваться
+    #[rustfmt::skip]
+    let identity_3x3 = [
+        [1, 0, 0],
+        [0, 1, 0],
+        [0, 0, 1],
+    ];
+    println!("{:?}", identity_3x3);
 }
 ```
 
-**Важное культурное отличие от `clang-format`:** у `rustfmt` **гораздо меньше** конфигурируемых опций, чем у `clang-format` (там десятки параметров стиля — расстановка скобок, выравнивание, порядок модификаторов). Философия Rust-сообщества здесь осознанно жёстче: "один стандартный стиль для всей экосистемы" — большинство опций `rustfmt` либо unstable (требуют nightly), либо вообще не существуют, потому что цель — минимизировать споры о стиле между проектами, а не дать гибкость настройки под вкус каждой команды, как это принято в C++-мире с его исторически разрозненными style guide'ами (Google Style, LLVM Style, Mozilla Style и т.д., каждый со своим `.clang-format`).
+## Шаг 1: `cargo fmt --check` — режим для CI, ничего не меняет
+
+```bash
+cargo fmt --check
+```
+
+```
+Diff in /home/claude/rustfmt_demo/src/main.rs at line 2:
+-struct Point{x:f64,y:f64,label:String}
+-
+-impl Point{
+-fn new(x:f64,y:f64)->Self{
+-Point{x,y,label:String::new()}
++struct Point {
++    x: f64,
++    y: f64,
++    label: String,
+ }
+...
+```
+
+Возвращает ненулевой код выхода и печатает diff, **не трогая файл** — именно это ставят в CI-пайплайн (`cargo fmt --check` в GitHub Actions/аналоге), чтобы падал билд, если кто-то закоммитил неотформатированный код, вместо того чтобы молча переписывать чужие файлы в CI.
+
+## Шаг 2: `cargo fmt` — реально применяет форматирование
+
+```bash
+cargo fmt
+```
+
+Результат:
+
+```rust
+use std::collections::HashMap;
+use std::fmt;
+use std::io::Read;
+
+struct Point {
+    x: f64,
+    y: f64,
+    label: String,
+}
+
+impl Point {
+    fn new(x: f64, y: f64) -> Self {
+        Point {
+            x,
+            y,
+            label: String::new(),
+        }
+    }
+
+    fn distance(&self, other: &Point) -> f64 {
+        ((self.x - other.x).powi(2) + (self.y - other.y).powi(2)).sqrt()
+    }
+}
+
+fn classify(n: i32) -> &'static str {
+    match n {
+        0 => "ноль",
+        1..=9 => "однозначное",
+        _ => "многозначное",
+    }
+}
+
+fn main() {
+    let p1 = Point::new(0.0, 0.0);
+    let p2 = Point::new(3.0, 4.0);
+    println!("{}", p1.distance(&p2));
+
+    let numbers = vec![1, 2, 3, 4, 5];
+    let doubled: Vec<i32> = numbers.iter().map(|x| x * 2).filter(|x| *x > 4).collect();
+    println!("{:?}", doubled);
+
+    let mut map = HashMap::new();
+    map.insert("a", 1);
+    map.insert("b", 2);
+
+    for (k, v) in &map {
+        println!("{}: {}", k, v);
+    }
+
+    // Матрица, размеченная вручную для читаемости -- НЕ должна переформатироваться
+    #[rustfmt::skip]
+    let identity_3x3 = [
+        [1, 0, 0],
+        [0, 1, 0],
+        [0, 0, 1],
+    ];
+    println!("{:?}", identity_3x3);
+}
+```
+
+**Обрати внимание на `identity_3x3`** — она осталась ровно в исходном ручном форматировании, потому что `#[rustfmt::skip]` явно исключает следующий за ним элемент из обработки. Проверил: без этого атрибута rustfmt схлопнул бы матрицу в одну строку `[[1, 0, 0], [0, 1, 0], [0, 0, 1]]`, что убило бы визуальную структуру, важную для понимания — типичный кейс, где ручное форматирование оправдано (таблицы, матрицы, выровненные битовые маски).
+
+## Шаг 3: `rustfmt.toml` — точечная настройка
+
+```toml
+max_width = 80
+use_small_heuristics = "Max"
+reorder_imports = true
+```
+
+Перемешал импорты вручную:
+
+```rust
+use std::io::Read;
+use std::fmt;
+use std::collections::HashMap;
+```
+
+После `cargo fmt` с этим конфигом:
+
+```rust
+use std::collections::HashMap;
+use std::fmt;
+use std::io::Read;
+```
+
+Пересортированы по алфавиту автоматически (`reorder_imports = true` — на самом деле включён по умолчанию, но явно показывает, что это настраиваемое поведение).
+
+С `max_width = 80` строка, которая раньше умещалась в 100-символьный лимит по умолчанию, теперь переносится:
+
+```rust
+    let doubled: Vec<i32> =
+        numbers.iter().map(|x| x * 2).filter(|x| *x > 4).collect();
+```
+
+## Ключевые команды — сводка
+
+|Команда|Что делает|
+|---|---|
+|`cargo fmt`|Переформатировать все файлы крейта на месте|
+|`cargo fmt --check`|Проверить без изменений, вернуть ошибку, если что-то не по стандарту (для CI)|
+|`cargo fmt -- --check`|То же самое (старый синтаксис передачи флагов напрямую в `rustfmt`)|
+|`rustfmt src/main.rs`|Форматировать один конкретный файл, в обход `cargo`|
+|`#[rustfmt::skip]`|Исключить следующий элемент (функцию, `let`, блок) из форматирования|
+|`rustfmt.toml` в корне проекта|Локальные настройки для этого крейта/workspace|
+
+## Параллель с `clang-format`
+
+|`clang-format`|`rustfmt`|
+|---|---|
+|`.clang-format` в корне|`rustfmt.toml` в корне|
+|`clang-format -i file.cpp`|`rustfmt file.rs`|
+|`clang-format --dry-run --Werror` (CI-режим)|`cargo fmt --check`|
+|`// clang-format off` / `// clang-format on`|`#[rustfmt::skip]`|
+|Десятки настраиваемых опций стиля|Единицы стабильных опций (`max_width`, `reorder_imports`, ещё немного) — большинство остального либо nightly-only, либо принципиально не настраивается ради единого стиля экосистемы|
+
 
 ## Сводная таблица
 
@@ -884,52 +1313,3 @@ fn add(a: i32, b: i32) -> i32 {
 |Форматтер|`clang-format` (сторонний, множество опций)|`rustfmt` (официальный, минимум опций, единый стиль)|
 |Подавление конкретного предупреждения|`// NOLINT(check-name)`|`#[allow(clippy::lint_name)]`|
 
-Этим закрывается вся Фаза 4 из исходного плана (Cargo, тестирование, `clippy`/`rustfmt`) — остаётся управление зависимостями/crates.io (мы это частично затронули в теме про Cargo, но не разбирали публикацию своих крейтов отдельно) и Фаза 5 — `unsafe`/FFI-интероп с C++, которая прямо связана с твоей текущей работой. Куда двигаемся?
-
----
----
-
-**Фаза 0 — быстрый рефреш (можно за один присест)** 
-- [x] Ownership/borrowing/lifetimes ещё раз, но через призму "как это соотносится с RAII и move-семантикой в C++". Основная цель — не учить с нуля, а закрыть пробелы и зафиксировать терминологию (move, Copy, borrow checker, NLL). (2026.07.27)
-- [x] точка входа в rust (2026.07.27)
-- [x] свободные функции в rust (2026.07.27)
-- [x] функции как аргументы (2026.07.27)
-- [x] модификаторы, передача по ссылке, передача по значению (2026.07.28)
-- [x] let в rust (2026.07.28)
-- [x] match в rust (2026.07.28)
-- [x] ветвления в rust (2026.07.28)
-- [x] циклы в rust (2026.07.28)
-- [x] разобрать конкретно "борьбу с borrow checker" на примерах — типичные ошибки (2026.07.28)
-- [x] создание "класса", видимость, поля, конструкторы, деструкторы, методы, статические методы и поля (2026.07.28)
-- [x] макросы name!(...) (2026.07.30)
-- [x] macro_rules example (2026.07.30)
-
-**Фаза 1 — типовая система и абстракции** 
-- [x] Traits и generics vs шаблоны C++ и виртуальные функции; (2026.07.30)
-- [x] trait objects (`dyn Trait`) vs vtable; (2026.07.30)
-- [x] impl trait (2026.07.30)
-- [x] enums как ADT и pattern matching (это то, чего в C++ нет вообще); (2026.07.30)
-- [x] обработка ошибок — `Result`/`Option`, `?`, `thiserror`/`anyhow` вместо исключений. (2026.07.31)
-
-**Фаза 2 — продвинутое владение памятью** 
-- [x] `Box` в rust, (2026.07.31)
-- [x] `Rc`/`Arc` в rust (2026.08.02)
-- [x] `RefCell`/`Cell`, interior mutability в rust (2026.08.03)
-- [x] продвинутые lifetimes (HRTB) в rust с примерами (2026.08.03)
-- [x] продвинутые lifetimes (variance) в rust с примерами (2026.08.03)
-- [x] сравнение с `unique_ptr`/`shared_ptr` — где Rust строже, а где придётся обходить borrow checker осознанно. (2026.08.03)
-
-**Фаза 3 — конкурентность и async** 
-- [x] Потоки, `Mutex`/`RwLock`, каналы (`mpsc`);  "fearless concurrency" и почему это гарантируется на уровне типов, в отличие от C++ memory model; (2026.08.04)
-- [x] `async`/`await`, `tokio`, сравнение с корутинами C++20/Boost.Asio, с которыми ты уже плотно работал. (2026.08.04)
-
-**Фаза 4 — инструментарий и экосистема** 
-- [x] Cargo (workspaces, features, build scripts) как аналог CMake/vcpkg; (2026.08.06)
-- [ ] тестирование и `criterion` для бенчмарков; `clippy`/`rustfmt`;
-- [ ] управление зависимостями и crates.io.
-
-**Фаза 5 — unsafe Rust и интероп с C++** 
-- [ ] `unsafe`, raw pointers, `cxx`/`bindgen`/`cbindgen` — это прямо релевантно твоей текущей работе с монолитом на C++: как встраивать Rust-компоненты в существующую C++-кодовую базу и наоборот.
-
-**Фаза 6 — практика** 
-- [ ] Итоговый проект, завязанный на Фазы 3–5: например, сетевой сервис на `tokio` или Rust-модуль, подключённый к C++ через FFI, с Docker-сборкой в довесок.

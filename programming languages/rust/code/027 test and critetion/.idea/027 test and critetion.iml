@@ -6,9 +6,18 @@
       <sourceFolder url="file://$MODULE_DIR$/001 rstest/main/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/002 integration-tests/main/src" isTestSource="false" />
       <sourceFolder url="file://$MODULE_DIR$/002 integration-tests/main/tests" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/003 doctest/main/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/004 criterion_demo/main/benches" isTestSource="true" />
+      <sourceFolder url="file://$MODULE_DIR$/004 criterion_demo/main/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/005 clippy/main/src" isTestSource="false" />
+      <sourceFolder url="file://$MODULE_DIR$/006 rustfmt/main/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/000 unit-tests/main/target" />
       <excludeFolder url="file://$MODULE_DIR$/001 rstest/main/target" />
       <excludeFolder url="file://$MODULE_DIR$/002 integration-tests/main/target" />
+      <excludeFolder url="file://$MODULE_DIR$/003 doctest/main/target" />
+      <excludeFolder url="file://$MODULE_DIR$/004 criterion_demo/main/target" />
+      <excludeFolder url="file://$MODULE_DIR$/005 clippy/main/target" />
+      <excludeFolder url="file://$MODULE_DIR$/006 rustfmt/main/target" />
     </content>
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />

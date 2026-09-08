@@ -13,7 +13,7 @@ pub struct Cart {
 
 #[derive(Debug, PartialEq)]
 pub enum CartError {
-    EntryName,
+    EmptyName,
     ZeroQuantity,
 }
 
@@ -21,7 +21,7 @@ impl Cart {
     pub fn new() -> Self { Self::default() }
 
     pub fn add(&mut self, name: &str, price_cents: u32, qty: u32) -> Result<(), CartError> {
-        if name.trim().is_empty() { return Err(CartError::ZeroQuantity); }
+        if name.trim().is_empty() { return Err(CartError::EmptyName); }
         if qty == 0 { return Err(CartError::ZeroQuantity); }
         self.items.push(Item { name: name.to_string(), price_cents, qty });
         Ok(())
