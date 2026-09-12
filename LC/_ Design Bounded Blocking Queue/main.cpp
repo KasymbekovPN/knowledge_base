@@ -20,7 +20,7 @@ namespace {
     public:
         explicit BoundedBlockingQueue(const size_t capacity) : capacity{capacity} {}
 
-        void enqueue(const T item) {
+        void enqueue(T item) {
             std::unique_lock<std::mutex> lock{mtx};
             not_full.wait(lock, [this] { return buffer.size() < capacity; });
             buffer.push(std::move(item));
@@ -149,8 +149,8 @@ namespace {
 }
 
 int main(int argc, char *argv[]) {
-    // start_test0();
-    start_test1();
+    start_test0();
+    // start_test1();
 
     return 0;
 }
