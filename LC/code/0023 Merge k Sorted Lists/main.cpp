@@ -12,16 +12,6 @@ namespace {
         explicit Node(const int x) : val(x), next(nullptr) {}
     };
 
-    // void create_nodes(std::vector<int>& nums, Node*& node) {
-    //     if (nums.empty()) return;
-    //
-    //     const auto value = nums.front();
-    //     nums.erase(nums.begin(), nums.begin() + 1);
-    //
-    //     node = new Node(value);
-    //     create_nodes(nums, node->next);
-    // }
-    //<
     Node* create_nodes(std::vector<int>& nums) {
         if (nums.empty()) return nullptr;
 

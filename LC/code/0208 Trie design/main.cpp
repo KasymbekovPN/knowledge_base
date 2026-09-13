@@ -12,12 +12,21 @@ namespace {
         struct TrieNode {
             TrieNode* children[SIZE] = {nullptr};
             bool is_end{false};
+
+            static void delete_it(const TrieNode* node) {
+                if (!node) return;
+                for (int i{}; i < SIZE; ++i) delete_it(node->children[i]);
+            }
         };
 
         TrieNode* root{nullptr};
 
     public:
         explicit Trie(): root(new TrieNode()) {}
+
+        ~Trie() {
+            TrieNode::delete_it(root);
+        }
 
         void insert(const std::string& word) const {
             TrieNode* node{root};

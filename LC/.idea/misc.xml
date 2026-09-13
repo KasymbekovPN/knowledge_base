@@ -3,7 +3,7 @@
   <component name="CMakePythonSetting">
     <option name="pythonIntegrationState" value="YES" />
   </component>
-  <component name="CMakeWorkspace" PROJECT_DIR="$PROJECT_DIR$/0772 Basic Calculator III">
+  <component name="CMakeWorkspace" PROJECT_DIR="$PROJECT_DIR$/code/_ Recursive descent parser">
     <contentRoot DIR="$PROJECT_DIR$" />
   </component>
 </project>
