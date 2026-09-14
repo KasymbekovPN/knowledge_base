@@ -1,0 +1,195 @@
+@startuml C4_Deployment_K8s_Istio
+' =============================================================================
+' C4 Deployment Diagram — Kubernetes + Istio Service Mesh
+' =============================================================================
+' Shows WHERE the containers from Level 2 run in production.
+' Visualizes the K8s cluster structure, Istio service mesh with Envoy sidecars,
+' namespaces, pods, and external service connections.
+'
+' AUDIENCE: DevOps, SRE, Platform Engineers, Architects.
+'
+' KEY CONCEPTS SHOWN:
+'   - AWS cloud region and availability zone
+'   - EKS (Kubernetes) cluster with multiple namespaces
+'   - Istio service mesh: Ingress Gateway, Istiod control plane, Envoy sidecars
+'   - Each pod has the application container + Envoy sidecar (mesh pattern)
+'   - Data services in their own namespace
+'   - External systems outside the cluster
+'
+' HOW TO CUSTOMIZE:
+'   1. Replace AWS/EKS with your cloud provider (GCP/GKE, Azure/AKS)
+'   2. Rename namespaces to match your cluster
+'   3. Add/remove pods to match your actual services
+'   4. Update external systems
+'   5. Adjust tags/colors for your conventions
+' =============================================================================
+
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Deployment.puml
+
+' --- Custom Tags for visual distinction ---
+AddElementTag("sidecar", $bgColor="#4a90d9", $fontColor="white", $borderColor="#2c5f8a", $legendText="Envoy Sidecar Proxy")
+AddElementTag("istio", $bgColor="#466bb0", $fontColor="white", $borderColor="#2d4a7a", $legendText="Istio Control Plane")
+AddElementTag("mesh_gateway", $bgColor="#5b4bb0", $fontColor="white", $borderColor="#3d3280", $legendText="Istio Ingress Gateway")
+AddElementTag("datastore", $bgColor="#3b7a57", $fontColor="white", $borderColor="#2d5f43", $legendText="Data Store")
+AddElementTag("messaging", $bgColor="#b85c00", $fontColor="white", $borderColor="#8a4500", $legendText="Message Broker")
+AddElementTag("external", $bgColor="#999999", $fontColor="white", $borderColor="#666666", $legendText="External Service")
+
+' --- Layout ---
+LAYOUT_TOP_DOWN()
+
+title Deployment Diagram - E-Commerce Platform (Production)
+
+' =============================================================================
+' AWS CLOUD
+' =============================================================================
+
+Deployment_Node(aws, "AWS Cloud", "Amazon Web Services", "us-east-1 region") {
+
+    Deployment_Node(alb, "Application Load Balancer", "AWS ALB", "TLS termination, public entry point") {
+        Container(lb, "Load Balancer", "AWS ALB", "Distributes traffic to Istio Ingress Gateway")
+    }
+
+    ' =========================================================================
+    ' KUBERNETES CLUSTER (EKS)
+    ' =========================================================================
+
+    Deployment_Node(eks, "EKS Cluster", "Kubernetes 1.28", "Managed Kubernetes — 3 node pools, auto-scaling") {
+
+        ' ---------------------------------------------------------------------
+        ' ISTIO SYSTEM NAMESPACE (control plane)
+        ' ---------------------------------------------------------------------
+
+        Deployment_Node(ns_istio, "Namespace: istio-system", "Kubernetes Namespace", "Istio control plane components") {
+
+            Deployment_Node(pod_ingress, "Pod: istio-ingressgateway", "Kubernetes Pod", "Replicas: 3") {
+                Container(istio_ingress, "Istio Ingress Gateway", "Envoy", "L7 load balancing, TLS, routing rules, rate limiting", $tags="mesh_gateway")
+            }
+
+            Deployment_Node(pod_istiod, "Pod: istiod", "Kubernetes Pod", "Replicas: 2") {
+                Container(istiod, "Istiod", "Go", "Service discovery, config distribution, certificate management (mTLS CA)", $tags="istio")
+            }
+        }
+
+        ' ---------------------------------------------------------------------
+        ' ECOMMERCE NAMESPACE (application services)
+        ' ---------------------------------------------------------------------
+
+        Deployment_Node(ns_ecommerce, "Namespace: ecommerce", "Kubernetes Namespace", "Application microservices — Istio sidecar injection enabled") {
+
+            ' --- Order Service Pod ---
+            Deployment_Node(pod_order, "Pod: order-service", "Kubernetes Pod", "Replicas: 3") {
+                Container(order_app, "Order Service", "Go", "Order lifecycle management")
+                Container(order_envoy, "Envoy Proxy", "Envoy 1.28", "mTLS, retries, circuit breaking, observability", $tags="sidecar")
+            }
+
+            ' --- Payment Service Pod ---
+            Deployment_Node(pod_payment, "Pod: payment-service", "Kubernetes Pod", "Replicas: 2") {
+                Container(payment_app, "Payment Service", "Java / Spring Boot", "Payment processing via Stripe")
+                Container(payment_envoy, "Envoy Proxy", "Envoy 1.28", "mTLS, retries, circuit breaking, observability", $tags="sidecar")
+            }
+
+            ' --- Inventory Service Pod ---
+            Deployment_Node(pod_inventory, "Pod: inventory-service", "Kubernetes Pod", "Replicas: 2") {
+                Container(inventory_app, "Inventory Service", "Python / FastAPI", "Stock management and reservations")
+                Container(inventory_envoy, "Envoy Proxy", "Envoy 1.28", "mTLS, retries, circuit breaking, observability", $tags="sidecar")
+            }
+
+            ' --- Notification Service Pod ---
+            Deployment_Node(pod_notification, "Pod: notification-service", "Kubernetes Pod", "Replicas: 2") {
+                Container(notification_app, "Notification Service", "Node.js / Express", "Email and push notifications")
+                Container(notification_envoy, "Envoy Proxy", "Envoy 1.28", "mTLS, retries, circuit breaking, observability", $tags="sidecar")
+            }
+        }
+
+        ' ---------------------------------------------------------------------
+        ' DATA NAMESPACE (databases and caches)
+        ' ---------------------------------------------------------------------
+
+        Deployment_Node(ns_data, "Namespace: data", "Kubernetes Namespace", "Stateful data services — persistent volumes") {
+
+            Deployment_Node(pod_postgres, "StatefulSet: postgresql", "Kubernetes StatefulSet", "Replicas: 3 (1 primary + 2 read replicas)") {
+                ContainerDb(postgres, "PostgreSQL", "PostgreSQL 15", "Orders, products, customers, inventory — WAL streaming replication", $tags="datastore")
+            }
+
+            Deployment_Node(pod_redis, "StatefulSet: redis-cluster", "Kubernetes StatefulSet", "Replicas: 6 (3 primary + 3 replica)") {
+                ContainerDb(redis, "Redis Cluster", "Redis 7", "Distributed cache — order status, product catalog, rate limiting", $tags="datastore")
+            }
+        }
+
+        ' ---------------------------------------------------------------------
+        ' MESSAGING NAMESPACE (event streaming)
+        ' ---------------------------------------------------------------------
+
+        Deployment_Node(ns_messaging, "Namespace: messaging", "Kubernetes Namespace", "Event streaming infrastructure") {
+
+            Deployment_Node(pod_kafka, "StatefulSet: kafka", "Kubernetes StatefulSet", "Brokers: 3, Partitions: configurable per topic") {
+                ContainerQueue(kafka, "Apache Kafka", "Kafka 3.6", "Domain event streaming — topics: order.*, payment.*, inventory.*", $tags="messaging")
+            }
+        }
+    }
+}
+
+' =============================================================================
+' EXTERNAL SYSTEMS (outside our cloud)
+' =============================================================================
+
+Deployment_Node(stripe_cloud, "Stripe Cloud", "External", "Payment processor — PCI DSS compliant") {
+    Container(stripe, "Stripe API", "HTTPS/REST", "Payment charges, refunds, webhooks", $tags="external")
+}
+
+Deployment_Node(shipco_cloud, "ShipCo Cloud", "External", "Logistics provider") {
+    Container(shipco, "ShipCo API", "HTTPS/REST", "Shipment creation, tracking, delivery webhooks", $tags="external")
+}
+
+Deployment_Node(sendgrid_cloud, "SendGrid Cloud", "External", "Email service provider") {
+    Container(sendgrid, "SendGrid API", "HTTPS/REST", "Transactional email delivery", $tags="external")
+}
+
+' =============================================================================
+' RELATIONSHIPS
+' =============================================================================
+
+' --- External traffic flow ---
+Rel(lb, istio_ingress, "Routes traffic", "HTTPS")
+
+' --- Istio Ingress → Application Pods (via Envoy sidecars) ---
+Rel(istio_ingress, order_envoy, "Routes /api/orders/*", "HTTP/2 + mTLS")
+Rel(istio_ingress, payment_envoy, "Routes /api/payments/*", "HTTP/2 + mTLS")
+Rel(istio_ingress, inventory_envoy, "Routes /api/inventory/*", "HTTP/2 + mTLS")
+
+' --- Envoy sidecar → Application container (within same pod) ---
+Rel(order_envoy, order_app, "Forwards", "localhost:8080")
+Rel(payment_envoy, payment_app, "Forwards", "localhost:8080")
+Rel(inventory_envoy, inventory_app, "Forwards", "localhost:8080")
+Rel(notification_envoy, notification_app, "Forwards", "localhost:8080")
+
+' --- Istiod → Envoy sidecars (control plane → data plane) ---
+Rel(istiod, order_envoy, "Pushes config (xDS)", "gRPC")
+Rel(istiod, payment_envoy, "Pushes config (xDS)", "gRPC")
+Rel(istiod, inventory_envoy, "Pushes config (xDS)", "gRPC")
+Rel(istiod, notification_envoy, "Pushes config (xDS)", "gRPC")
+
+' --- Service-to-service (through Envoy mesh — mTLS) ---
+Rel(order_envoy, payment_envoy, "Payment requests", "gRPC + mTLS")
+Rel(order_envoy, inventory_envoy, "Stock reservation", "gRPC + mTLS")
+
+' --- Services → Data stores ---
+Rel(order_app, postgres, "SQL queries", "TCP/5432")
+Rel(payment_app, postgres, "SQL queries", "TCP/5432")
+Rel(inventory_app, postgres, "SQL queries", "TCP/5432")
+Rel(order_app, redis, "Cache reads/writes", "TCP/6379")
+Rel(inventory_app, redis, "Cache reads/writes", "TCP/6379")
+
+' --- Services → Kafka ---
+Rel(order_app, kafka, "Publishes events", "TCP/9092")
+Rel(payment_app, kafka, "Publishes events", "TCP/9092")
+Rel(notification_app, kafka, "Consumes events", "TCP/9092")
+
+' --- Services → External (egress through Envoy) ---
+Rel(payment_envoy, stripe, "Payment API calls", "HTTPS (Istio egress)")
+Rel(order_envoy, shipco, "Shipping API calls", "HTTPS (Istio egress)")
+Rel(notification_envoy, sendgrid, "Email API calls", "HTTPS (Istio egress)")
+
+SHOW_LEGEND()
+
+@enduml

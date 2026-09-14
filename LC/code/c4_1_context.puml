@@ -1,0 +1,64 @@
+@startuml C4_Level1_SystemContext
+' =============================================================================
+' C4 Level 1 — System Context Diagram
+' =============================================================================
+' Shows the E-Commerce Order Platform as a single black box, surrounded by
+' the people (actors) who use it and the external systems it depends on.
+'
+' AUDIENCE: Everyone — business stakeholders, developers, ops, new joiners.
+'
+' HOW TO CUSTOMIZE:
+'   1. Replace "E-Commerce Order Platform" with your system name
+'   2. Update Person() entries with your actual user roles
+'   3. Update System_Ext() entries with your actual external dependencies
+'   4. Update Rel() labels with your actual communication protocols
+' =============================================================================
+
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml
+
+' --- Layout ---
+LAYOUT_WITH_LEGEND()
+
+title System Context Diagram - E-Commerce Order Platform
+
+' =============================================================================
+' PEOPLE (actors who interact with the system)
+' =============================================================================
+
+Person(customer, "Customer", "A user who browses products, places orders, and tracks deliveries via web or mobile app.")
+Person(admin, "Platform Admin", "Internal staff who manages products, monitors orders, and handles customer issues.")
+
+' =============================================================================
+' YOUR SYSTEM (the system being documented — shown as a single box)
+' =============================================================================
+
+System(ecommerce_platform, "E-Commerce Order Platform", "Handles product catalog, order processing, payments, inventory management, and shipping coordination.")
+
+' =============================================================================
+' EXTERNAL SYSTEMS (systems you depend on but don't own/control)
+' =============================================================================
+
+System_Ext(stripe, "Stripe", "Third-party payment processing platform. Handles credit card charges, refunds, and fraud detection.")
+System_Ext(shipco, "ShipCo Logistics", "Third-party shipping and logistics provider. Handles package pickup, tracking, and last-mile delivery.")
+System_Ext(sendgrid, "SendGrid", "Cloud email delivery service. Sends transactional emails: order confirmations, shipping updates, password resets.")
+
+' =============================================================================
+' RELATIONSHIPS
+' =============================================================================
+
+' Customer interactions
+Rel(customer, ecommerce_platform, "Browses products, places orders, tracks shipments", "HTTPS")
+
+' Admin interactions
+Rel(admin, ecommerce_platform, "Manages catalog, views orders, handles support", "HTTPS")
+
+' Outbound to external systems
+Rel(ecommerce_platform, stripe, "Processes payments and refunds", "HTTPS/REST API")
+Rel(ecommerce_platform, shipco, "Creates shipments, gets tracking updates", "HTTPS/REST API")
+Rel(ecommerce_platform, sendgrid, "Sends transactional emails", "HTTPS/SMTP API")
+
+' Inbound from external systems (webhooks)
+Rel(stripe, ecommerce_platform, "Sends payment event webhooks", "HTTPS webhook")
+Rel(shipco, ecommerce_platform, "Sends delivery status webhooks", "HTTPS webhook")
+
+@enduml

@@ -1,0 +1,109 @@
+@startuml C4_Level2_Container
+' =============================================================================
+' C4 Level 2 — Container Diagram
+' =============================================================================
+' Zooms INTO the "E-Commerce Order Platform" from Level 1.
+' Shows all the deployable units (services, databases, brokers) that make up
+' the system, their technologies, and how they communicate.
+'
+' AUDIENCE: Dev team, architects, DevOps/SRE.
+'
+' TERMINOLOGY: "Container" here = a separately deployable unit (service, DB,
+' queue). NOT a Docker container (though they may run in Docker).
+'
+' HOW TO CUSTOMIZE:
+'   1. Rename the System_Boundary to your system name
+'   2. Replace Container() entries with your actual services + technologies
+'   3. Replace ContainerDb() with your actual data stores
+'   4. Replace ContainerQueue() with your actual message brokers
+'   5. Update Rel() with your actual communication patterns and protocols
+' =============================================================================
+
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
+
+' --- Layout ---
+LAYOUT_TOP_DOWN()
+LAYOUT_WITH_LEGEND()
+
+title Container Diagram - E-Commerce Order Platform
+
+' =============================================================================
+' PEOPLE (carried over from Level 1 for context)
+' =============================================================================
+
+Person(customer, "Customer", "Browses, orders, and tracks via web/mobile.")
+Person(admin, "Platform Admin", "Manages catalog, orders, and support.")
+
+' =============================================================================
+' SYSTEM BOUNDARY — everything inside is part of your system
+' =============================================================================
+
+System_Boundary(ecommerce, "E-Commerce Order Platform") {
+
+    ' --- API Gateway (entry point for all external traffic) ---
+    Container(api_gw, "API Gateway", "Kong", "Routes external requests, handles rate limiting, authentication, and SSL termination.")
+
+    ' --- Microservices ---
+    Container(order_svc, "Order Service", "Go", "Manages order lifecycle: creation, validation, status updates, and fulfillment coordination.")
+    Container(payment_svc, "Payment Service", "Java / Spring Boot", "Processes payments via Stripe, handles refunds, and manages payment state.")
+    Container(inventory_svc, "Inventory Service", "Python / FastAPI", "Tracks stock levels, reserves inventory for orders, handles restocking.")
+    Container(notification_svc, "Notification Service", "Node.js / Express", "Sends emails, push notifications, and SMS based on domain events.")
+
+    ' --- Data Stores ---
+    ' Use ContainerDb for databases and caches (shows cylinder shape)
+    ContainerDb(postgres, "PostgreSQL", "PostgreSQL 15", "Primary data store for orders, products, customers, and inventory.")
+    ContainerDb(redis, "Redis Cache", "Redis 7", "Caches product catalog, session data, and rate-limiting counters. TTL-based eviction.")
+
+    ' --- Message Broker ---
+    ' Use ContainerQueue for async messaging systems (shows queue shape)
+    ContainerQueue(kafka, "Event Bus", "Apache Kafka", "Async event streaming: order.created, payment.completed, inventory.reserved, shipment.dispatched.")
+}
+
+' =============================================================================
+' EXTERNAL SYSTEMS (same as Level 1, shown outside the boundary)
+' =============================================================================
+
+System_Ext(stripe, "Stripe", "Payment processing and fraud detection.")
+System_Ext(shipco, "ShipCo Logistics", "Shipping, tracking, and delivery.")
+System_Ext(sendgrid, "SendGrid", "Transactional email delivery.")
+
+' =============================================================================
+' RELATIONSHIPS
+' =============================================================================
+
+' --- External → API Gateway ---
+Rel(customer, api_gw, "Browses and places orders", "HTTPS/JSON")
+Rel(admin, api_gw, "Manages platform", "HTTPS/JSON")
+
+' --- API Gateway → Services ---
+Rel(api_gw, order_svc, "Routes order requests", "HTTP/gRPC")
+Rel(api_gw, inventory_svc, "Routes catalog/stock queries", "HTTP/REST")
+Rel(api_gw, payment_svc, "Routes payment requests", "HTTP/REST")
+
+' --- Service-to-Service (synchronous) ---
+Rel(order_svc, payment_svc, "Initiates payment for order", "gRPC")
+Rel(order_svc, inventory_svc, "Reserves stock for order", "gRPC")
+
+' --- Services → Data Stores ---
+Rel(order_svc, postgres, "Reads/writes orders", "SQL/TCP port 5432")
+Rel(inventory_svc, postgres, "Reads/writes inventory", "SQL/TCP port 5432")
+Rel(payment_svc, postgres, "Reads/writes payment records", "SQL/TCP port 5432")
+Rel(order_svc, redis, "Caches order status lookups", "Redis protocol/TCP 6379")
+Rel(inventory_svc, redis, "Caches product catalog", "Redis protocol/TCP 6379")
+
+' --- Services → Kafka (async events) ---
+Rel(order_svc, kafka, "Publishes order events", "Kafka producer")
+Rel(payment_svc, kafka, "Publishes payment events", "Kafka producer")
+Rel(inventory_svc, kafka, "Publishes inventory events", "Kafka producer")
+Rel_U(notification_svc, kafka, "Consumes all domain events", "Kafka consumer")
+
+' --- Services → External Systems ---
+Rel(payment_svc, stripe, "Charges and refunds", "HTTPS/REST")
+Rel(order_svc, shipco, "Creates shipments", "HTTPS/REST")
+Rel(notification_svc, sendgrid, "Sends emails", "HTTPS/SMTP API")
+
+' --- Webhooks inbound (through API Gateway) ---
+Rel(stripe, api_gw, "Payment webhooks", "HTTPS")
+Rel(shipco, api_gw, "Delivery webhooks", "HTTPS")
+
+@enduml

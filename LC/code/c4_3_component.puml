@@ -1,0 +1,90 @@
+@startuml C4_Level3_Component
+' =============================================================================
+' C4 Level 3 — Component Diagram (Order Service)
+' =============================================================================
+' Zooms INTO the "Order Service" container from Level 2.
+' Shows the major internal building blocks (components) and how they interact
+' with each other and with external containers.
+'
+' AUDIENCE: Developers working on the Order Service, tech leads reviewing design.
+'
+' WHY THIS CONTAINER: The Order Service is the most complex microservice —
+' it coordinates payments, inventory, shipping, and caching. Other simpler
+' services (e.g., Notification Service) don't need this level of detail.
+'
+' HOW TO CUSTOMIZE:
+'   1. Replace Container_Boundary label with your container name
+'   2. Replace Component() entries with your actual internal modules
+'   3. Update external containers to match your Level 2 diagram
+'   4. Update relationships to reflect your actual internal communication
+' =============================================================================
+
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
+
+' --- Layout ---
+LAYOUT_TOP_DOWN()
+LAYOUT_WITH_LEGEND()
+
+title Component Diagram - Order Service
+
+' =============================================================================
+' EXTERNAL CONTAINERS (from Level 2 — shown for context, not detailed here)
+' =============================================================================
+
+Container(api_gw, "API Gateway", "Kong", "Routes incoming requests to Order Service.")
+ContainerDb(postgres, "PostgreSQL", "PostgreSQL 15", "Primary data store for orders.")
+ContainerDb(redis, "Redis Cache", "Redis 7", "Caches order status and product data.")
+ContainerQueue(kafka, "Event Bus", "Apache Kafka", "Async domain event streaming.")
+Container(payment_svc, "Payment Service", "Java / Spring Boot", "Processes payments via Stripe.")
+Container(inventory_svc, "Inventory Service", "Python / FastAPI", "Manages stock levels.")
+
+' =============================================================================
+' CONTAINER BOUNDARY — Order Service internals
+' =============================================================================
+
+Container_Boundary(order_svc, "Order Service (Go)") {
+
+    ' --- API Layer ---
+    Component(order_controller, "Order Controller", "Go / net/http", "REST API handler. Validates requests, authentication, rate limiting. Exposes endpoints: POST /orders, GET /orders/{id}, PATCH /orders/{id}/cancel.")
+
+    ' --- Business Logic Layer ---
+    Component(order_processor, "Order Processor", "Go", "Core business logic. Orchestrates the order lifecycle: validate → reserve inventory → charge payment → create shipment → confirm.")
+
+    ' --- Integration Clients (outbound communication) ---
+    Component(payment_client, "Payment Client", "Go / gRPC client", "gRPC client for the Payment Service. Handles charge requests, refund requests, and payment status polling.")
+    Component(inventory_client, "Inventory Client", "Go / gRPC client", "gRPC client for the Inventory Service. Handles stock reservation, release on cancellation, and availability checks.")
+
+    ' --- Infrastructure Components ---
+    Component(cache_manager, "Cache Manager", "Go / go-redis", "Manages Redis interactions. Implements read-through caching for order status, write-behind for hot product data. Handles TTL and invalidation.")
+    Component(order_repo, "Order Repository", "Go / pgx", "Data access layer for PostgreSQL. Implements the Repository pattern. Handles transactions, pagination, and query building.")
+    Component(event_publisher, "Event Publisher", "Go / confluent-kafka-go", "Publishes domain events to Kafka topics (order.created, order.cancelled, order.shipped). Handles serialization and delivery guarantees.")
+}
+
+' =============================================================================
+' RELATIONSHIPS — Internal
+' =============================================================================
+
+' API Gateway → Controller
+Rel(api_gw, order_controller, "Routes HTTP requests", "HTTP/JSON")
+
+' Controller → Processor (delegates business logic)
+Rel(order_controller, order_processor, "Delegates order operations")
+
+' Processor → Clients (orchestrates external calls)
+Rel(order_processor, payment_client, "Requests payment charge/refund")
+Rel(order_processor, inventory_client, "Requests stock reservation/release")
+Rel(order_processor, cache_manager, "Reads/invalidates cached data")
+Rel(order_processor, order_repo, "Persists order state")
+Rel(order_processor, event_publisher, "Publishes domain events")
+
+' =============================================================================
+' RELATIONSHIPS — To External Containers
+' =============================================================================
+
+Rel(payment_client, payment_svc, "Charges and refunds", "gRPC/TLS")
+Rel(inventory_client, inventory_svc, "Reserves and releases stock", "gRPC/TLS")
+Rel(cache_manager, redis, "GET/SET/DEL", "Redis protocol/TCP 6379")
+Rel(order_repo, postgres, "SQL queries", "TCP port 5432")
+Rel(event_publisher, kafka, "Produces events", "Kafka protocol/TCP 9092")
+
+@enduml

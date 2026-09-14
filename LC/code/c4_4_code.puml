@@ -1,0 +1,218 @@
+@startuml C4_Level4_Code
+' =============================================================================
+' C4 Level 4 — Code Diagram (Order Domain Model)
+' =============================================================================
+' Shows the class-level structure of the Order domain within the Order Service.
+' This is a standard UML class diagram — Level 4 does NOT use C4 macros.
+'
+' AUDIENCE: Developers writing/modifying the Order domain code.
+'
+' NOTE: Level 4 is OPTIONAL. Most teams skip it because:
+'   - IDEs (IntelliJ, VS Code) can auto-generate class diagrams
+'   - Clean code with good naming is often self-documenting
+'   - These diagrams rot fast as code evolves
+'
+' Create Level 4 only when:
+'   - The domain model is complex and shared across teams
+'   - You're documenting a public API/SDK
+'   - Onboarding requires understanding aggregate boundaries
+'
+' HOW TO CUSTOMIZE:
+'   1. Replace classes with your actual domain entities
+'   2. Update attributes and methods to match your code
+'   3. Update relationships (composition, dependency, etc.)
+' =============================================================================
+
+title Class Diagram - Order Domain Model (Go)
+
+' --- Styling ---
+skinparam classAttributeIconSize 0
+skinparam classFontStyle bold
+skinparam packageStyle rectangle
+
+' =============================================================================
+' ENUMS
+' =============================================================================
+
+enum OrderStatus {
+    PENDING
+    CONFIRMED
+    PAYMENT_PROCESSING
+    PAID
+    SHIPPED
+    DELIVERED
+    CANCELLED
+    REFUNDED
+}
+
+enum PaymentMethod {
+    CREDIT_CARD
+    DEBIT_CARD
+    BANK_TRANSFER
+    WALLET
+}
+
+' =============================================================================
+' VALUE OBJECTS
+' =============================================================================
+
+class Money {
+    - amount: decimal
+    - currency: string
+    + Add(other: Money): Money
+    + Subtract(other: Money): Money
+    + Multiply(factor: int): Money
+    + IsZero(): bool
+}
+
+class Address {
+    - street: string
+    - city: string
+    - state: string
+    - zipCode: string
+    - country: string
+    + Validate(): error
+    + Format(): string
+}
+
+' =============================================================================
+' ENTITIES
+' =============================================================================
+
+class Order <<Aggregate Root>> {
+    - id: UUID
+    - customerID: UUID
+    - status: OrderStatus
+    - items: []OrderItem
+    - shippingAddress: Address
+    - totalAmount: Money
+    - paymentMethod: PaymentMethod
+    - createdAt: time.Time
+    - updatedAt: time.Time
+    --
+    + NewOrder(customerID, items, address): Order
+    + AddItem(item: OrderItem): error
+    + RemoveItem(itemID: UUID): error
+    + Confirm(): error
+    + Cancel(reason: string): error
+    + MarkAsPaid(transactionID: string): error
+    + MarkAsShipped(trackingNumber: string): error
+    + CalculateTotal(): Money
+    + CanBeCancelled(): bool
+}
+
+class OrderItem <<Value Object>> {
+    - id: UUID
+    - productID: UUID
+    - productName: string
+    - quantity: int
+    - unitPrice: Money
+    - subtotal: Money
+    --
+    + NewOrderItem(productID, name, qty, price): OrderItem
+    + CalculateSubtotal(): Money
+    + UpdateQuantity(qty: int): error
+}
+
+class Customer <<Entity>> {
+    - id: UUID
+    - email: string
+    - name: string
+    - defaultAddress: Address
+    --
+    + PlaceOrder(items: []OrderItem, address: Address): Order
+}
+
+' =============================================================================
+' INTERFACES (Ports)
+' =============================================================================
+
+interface OrderRepository <<interface>> {
+    + Save(ctx, order: Order): error
+    + FindByID(ctx, id: UUID): (Order, error)
+    + FindByCustomer(ctx, customerID: UUID, page: Pagination): ([]Order, error)
+    + Update(ctx, order: Order): error
+    + Delete(ctx, id: UUID): error
+}
+
+interface PaymentGateway <<interface>> {
+    + Charge(ctx, amount: Money, method: PaymentMethod): (TransactionID, error)
+    + Refund(ctx, transactionID: string, amount: Money): error
+    + GetStatus(ctx, transactionID: string): (PaymentStatus, error)
+}
+
+interface EventPublisher <<interface>> {
+    + Publish(ctx, event: DomainEvent): error
+}
+
+' =============================================================================
+' APPLICATION SERVICE
+' =============================================================================
+
+class OrderService <<Service>> {
+    - repo: OrderRepository
+    - payment: PaymentGateway
+    - events: EventPublisher
+    --
+    + CreateOrder(ctx, cmd: CreateOrderCommand): (Order, error)
+    + CancelOrder(ctx, orderID: UUID, reason: string): error
+    + ProcessPayment(ctx, orderID: UUID): error
+    + GetOrder(ctx, orderID: UUID): (Order, error)
+    + ListOrders(ctx, customerID: UUID, page: Pagination): ([]Order, error)
+}
+
+' =============================================================================
+' DOMAIN EVENTS
+' =============================================================================
+
+class DomainEvent <<interface>> {
+    + EventType(): string
+    + OccurredAt(): time.Time
+    + AggregateID(): UUID
+}
+
+class OrderCreatedEvent {
+    - orderID: UUID
+    - customerID: UUID
+    - totalAmount: Money
+    - occurredAt: time.Time
+}
+
+class OrderCancelledEvent {
+    - orderID: UUID
+    - reason: string
+    - occurredAt: time.Time
+}
+
+' =============================================================================
+' RELATIONSHIPS
+' =============================================================================
+
+' Composition: Order owns OrderItems (lifecycle bound)
+Order *-- "1..*" OrderItem : contains
+
+' Order uses value objects
+Order --> Money : totalAmount
+Order --> Address : shippingAddress
+Order --> OrderStatus : status
+Order --> PaymentMethod : paymentMethod
+OrderItem --> Money : unitPrice, subtotal
+
+' Customer places Orders
+Customer --> "0..*" Order : places
+Customer --> Address : defaultAddress
+
+' Service depends on interfaces (Dependency Inversion)
+OrderService ..> OrderRepository : uses
+OrderService ..> PaymentGateway : uses
+OrderService ..> EventPublisher : uses
+OrderService ..> Order : manages
+
+' Events implement DomainEvent
+OrderCreatedEvent ..|> DomainEvent
+OrderCancelledEvent ..|> DomainEvent
+
+' Order produces events
+Order ..> DomainEvent : raises
+
+@enduml

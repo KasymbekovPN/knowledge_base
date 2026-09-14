@@ -1,0 +1,84 @@
+@startuml C4_Dynamic_OrderPlacement
+' =============================================================================
+' C4 Dynamic Diagram — Order Placement Flow
+' =============================================================================
+' Shows the sequence of interactions when a customer places an order.
+' This is a "sequence-like" C4 diagram using numbered steps to show
+' the runtime flow across containers.
+'
+' AUDIENCE: Dev team, architects — understanding the runtime behavior.
+'
+' WHEN TO USE: When you need to show HOW containers interact at runtime
+' for a specific use case / user story, not just THAT they interact.
+'
+' HOW TO CUSTOMIZE:
+'   1. Replace participants with your own containers/systems
+'   2. Change the Rel() calls to match your actual flow
+'   3. The numbering is automatic — order of Rel() determines step numbers
+'   4. Use Rel_Back() for response arrows going "backwards"
+' =============================================================================
+
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Dynamic.puml
+
+' --- Layout ---
+LAYOUT_WITH_LEGEND()
+
+title Dynamic Diagram - Order Placement Flow
+
+' =============================================================================
+' PARTICIPANTS (same containers from Level 2, subset relevant to this flow)
+' =============================================================================
+
+Person(customer, "Customer", "Places an order via web/mobile.")
+
+Container(api_gw, "API Gateway", "Kong", "Routes requests, authenticates, rate-limits.")
+Container(order_svc, "Order Service", "Go", "Manages order lifecycle.")
+Container(inventory_svc, "Inventory Service", "Python / FastAPI", "Tracks and reserves stock.")
+Container(payment_svc, "Payment Service", "Java / Spring Boot", "Processes payments.")
+Container(notification_svc, "Notification Service", "Node.js / Express", "Sends notifications.")
+ContainerDb(postgres, "PostgreSQL", "PostgreSQL 15", "Primary data store.")
+ContainerDb(redis, "Redis Cache", "Redis 7", "Caches order status.")
+ContainerQueue(kafka, "Event Bus", "Apache Kafka", "Async event streaming.")
+
+System_Ext(stripe, "Stripe", "Payment processing.")
+System_Ext(sendgrid, "SendGrid", "Email delivery.")
+
+' =============================================================================
+' FLOW — each Rel() is a numbered step (auto-incremented)
+' =============================================================================
+
+' Step 1: Customer submits order
+Rel(customer, api_gw, "POST /orders with cart items", "HTTPS/JSON")
+
+' Step 2: API Gateway routes to Order Service
+Rel(api_gw, order_svc, "Forward order request", "HTTP/gRPC")
+
+' Step 3: Order Service reserves inventory
+Rel(order_svc, inventory_svc, "Reserve stock for items", "gRPC")
+
+' Step 4: Inventory Service checks and decrements stock
+Rel(inventory_svc, postgres, "UPDATE stock SET reserved", "SQL")
+
+' Step 5: Order Service initiates payment
+Rel(order_svc, payment_svc, "Charge customer for order total", "gRPC")
+
+' Step 6: Payment Service calls Stripe
+Rel(payment_svc, stripe, "Create payment intent", "HTTPS/REST")
+
+' Step 7: Payment Service persists payment record
+Rel(payment_svc, postgres, "INSERT payment record", "SQL")
+
+' Step 8: Order Service saves confirmed order
+Rel(order_svc, postgres, "INSERT order (status=confirmed)", "SQL")
+
+' Step 9: Order Service caches order status
+Rel(order_svc, redis, "SET order:<id> status=confirmed", "Redis protocol")
+
+' Step 10: Order Service publishes event
+Rel(order_svc, kafka, "Publish order.confirmed event", "Kafka producer")
+
+' Step 11: Notification Service consumes event and emails customer
+Rel(kafka, notification_svc, "Consume order.confirmed", "Kafka consumer")
+Rel(notification_svc, sendgrid, "Send order confirmation email", "HTTPS/SMTP API")
+
+@enduml
