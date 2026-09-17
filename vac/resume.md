@@ -47,7 +47,7 @@ Team Lead / Senior C++ Developer
 
 Навыки:
  Продвинутый: stm32, C/C++, CMake
- Средний: Git, vcpkg, Boost, wasm, rust, Java, Docker, protobuf, gRPC, Bash, SSH, SQL, NoSQL
+ Средний: git, vcpkg, Boost, wasm, rust, Java, Docker, protobuf, gRPC, Bash, SSH, SQL, NoSQL
  Базовый: Python, Qt
  
 
