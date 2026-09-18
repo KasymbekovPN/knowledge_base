@@ -3,7 +3,7 @@
   <component name="CMakePythonSetting">
     <option name="pythonIntegrationState" value="YES" />
   </component>
-  <component name="CMakeWorkspace" PROJECT_DIR="$PROJECT_DIR$/code/007 ABA example on pointers">
+  <component name="CMakeWorkspace" PROJECT_DIR="$PROJECT_DIR$/code/010 Trieber stack">
     <contentRoot DIR="$PROJECT_DIR$" />
   </component>
 </project>
