@@ -163,10 +163,6 @@ namespace hazard_demo {
                 if (h.load(std::memory_order_acquire) == p) return true;
             }
             return false;
-            //<
-            //     for (auto& h : hazard_ptrs)
-            //         if (h.load(std::memory_order_acquire) == p) return true;
-            //     return false;
         }
 
         void retire(Node* p) {
@@ -176,13 +172,6 @@ namespace hazard_demo {
                 std::cout << "[retire] " << p << " not protected -- delete\n" << std::flush;
                 delete p;
             }
-            //<
-            //     if (is_hazardous(p)) {
-            //         std::cout << "  [retire] " << p << " защищён -- delete отложен\n" << std::flush;
-            //     } else {
-            //         std::cout << "  [retire] " << p << " не защищён -- удаляем сразу\n" << std::flush;
-            //         delete p;
-            //     }
         }
 
         void print_stack(const std::string& label) {

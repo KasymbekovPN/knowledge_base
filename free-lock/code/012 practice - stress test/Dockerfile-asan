@@ -1,0 +1,50 @@
+# ============================================================
+# Dockerfile-asan -- окружение для сборки и прогона C++ lock-free
+# кода под AddressSanitizer (+ встроенный LeakSanitizer).
+#
+# Сборка:
+#   docker build -f Dockerfile-asan -t lockfree-asan .
+#
+# Запуск (одна команда, файл монтируется снаружи):
+#   docker run --rm --cap-add=SYS_PTRACE --security-opt seccomp=unconfined \
+#       -v "$(pwd):/src" -w /src lockfree-asan \
+#       sh -c "g++ -std=c++20 -O0 -g -fsanitize=address,undefined -pthread \
+#              custom_stack.cpp -o /tmp/out -latomic && /tmp/out"
+#
+#   docker run --rm --cap-add=SYS_PTRACE --security-opt seccomp=unconfined -v "${pwd}:/src" -w /src lockfree-asan sh -c "g++ -std=c++20 -O0 -g -fsanitize=address,undefined -pthread main.cpp -o /tmp/out -latomic && /tmp/out"
+#
+# Интерактивно:
+#   docker run --rm -it --cap-add=SYS_PTRACE --security-opt seccomp=unconfined -v "$(pwd):/src" -w /src lockfree-asan bash
+#   docker run --rm -it --cap-add=SYS_PTRACE --security-opt seccomp=unconfined -v "${pwd}:/src" -w /src lockfree-asan bash
+#
+# --cap-add=SYS_PTRACE и --security-opt seccomp=unconfined нужны, потому что
+# ASan трогает /proc/self/maps и ставит сигнальные обработчики способом,
+# который дефолтный seccomp-профиль Docker иногда блокирует -- без этого
+# возможны молчаливые "SEGV on unknown address" вместо нормального отчёта.
+# ============================================================
+
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    g++-13 \
+    clang-18 \
+    cmake \
+    ninja-build \
+    gdb \
+    git \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-13 100 \
+    && update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-13 100
+
+# detect_leaks=1 включает LeakSanitizer (идёт в комплекте с ASan).
+# abort_on_error=1 -- сразу core dump вместо exit(1), удобно под gdb.
+# symbolize=1 -- человекочитаемые стектрейсы со строками кода.
+ENV ASAN_OPTIONS="detect_leaks=1 abort_on_error=1 symbolize=1"
+ENV UBSAN_OPTIONS="print_stacktrace=1 halt_on_error=1"
+
+WORKDIR /src
+CMD ["bash"]

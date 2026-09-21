@@ -1,0 +1,48 @@
+# ============================================================
+# Dockerfile-tsan -- окружение для сборки и прогона C++ lock-free
+# кода под ThreadSanitizer (детектор гонок данных).
+#
+# Сборка:
+#   docker build -f Dockerfile-tsan -t lockfree-tsan .
+#
+# Запуск (одна команда, файл монтируется снаружи):
+#   docker run --rm -v "$(pwd)":/src -w /src lockfree-tsan \
+#       sh -c "g++ -std=c++20 -O0 -g -fsanitize=thread -pthread \
+#              custom_stack.cpp -o /tmp/out -latomic && /tmp/out"
+#
+# Интерактивно (зайти внутрь и гонять сборки вручную):
+#   docker run --rm -it -v "$(pwd)":/src -w /src lockfree-tsan bash
+#   docker run --rm -it -v "${PWD}:/src" -w /src lockfree-tsan bash
+#
+# docker run --rm --privileged alpine sh -c "echo 28 > /proc/sys/vm/mmap_rnd_bits"
+# g++ -std=c++20 -O0 -g -fsanitize=thread -pthread main.cpp -o /tmp/out -latomic && /tmp/out
+#
+# ============================================================
+
+FROM ubuntu:24.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    g++-13 \
+    clang-18 \
+    cmake \
+    ninja-build \
+    gdb \
+    git \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# g++-13 как g++/gcc по умолчанию
+RUN update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-13 100 \
+    && update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-13 100
+
+# TSan по умолчанию слегка параноидален по части vfork() внутри контейнеров
+# и malloc-hook'ов -- задаём разумные опции через переменную окружения,
+# чтобы не приходилось передавать их вручную при каждом запуске.
+# history_size увеличивает буфер трассировки (полезно для длинных стресс-тестов),
+# second_deadlock_stack добавляет второй стек в отчётах о deadlock.
+ENV TSAN_OPTIONS="history_size=7 second_deadlock_stack=1 halt_on_error=1"
+
+WORKDIR /src
+CMD ["bash"]

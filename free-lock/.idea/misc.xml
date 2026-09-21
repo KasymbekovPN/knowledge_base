@@ -3,7 +3,7 @@
   <component name="CMakePythonSetting">
     <option name="pythonIntegrationState" value="YES" />
   </component>
-  <component name="CMakeWorkspace" PROJECT_DIR="$PROJECT_DIR$/code/010 Trieber stack">
+  <component name="CMakeWorkspace" PROJECT_DIR="$PROJECT_DIR$/code/013 mutex-base vs atomic">
     <contentRoot DIR="$PROJECT_DIR$" />
   </component>
 </project>
