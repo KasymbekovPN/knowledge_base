@@ -21,8 +21,9 @@ namespace {
             T data;
         };
 
-        alignas(std::hardware_constructive_interference_size) std::atomic<size_t> enqueue_pos_;
-        alignas(std::hardware_constructive_interference_size) std::atomic<size_t> dequeue_pos_;
+        alignas(std::hardware_destructive_interference_size) std::atomic<size_t> enqueue_pos_;
+        alignas(std::hardware_destructive_interference_size) std::atomic<size_t> dequeue_pos_;
+
         Cell* buffer_;
         size_t buffer_mask_;
 
@@ -64,7 +65,7 @@ namespace {
 
         bool pop(T& result) {
             Cell* cell;
-            size_t pos{dequeue_pos_.load(std::memory_order_release)};
+            size_t pos{dequeue_pos_.load(std::memory_order_relaxed)};
             for (;;) {
                 cell = &buffer_[pos & buffer_mask_];
                 const size_t seq{cell->sequence.load(std::memory_order_acquire)};
@@ -134,94 +135,105 @@ namespace {
                           const size_t capacity) {
 
         Q queue{capacity};
-        const int total{num_producers + items_per_producer};
+        const int total{num_producers * items_per_producer};
 
         std::atomic<int> consumed{0};
         std::atomic<long long> checksum_in{0};
         std::atomic<long long> checksum_out{0};
 
         std::vector<std::vector<long long>> latencies_per_thread(num_producers);
-        for (auto& v: latencies_per_thread) v.resize(items_per_producer);
+        for (auto& v: latencies_per_thread) v.reserve(items_per_producer);
 
         const auto start{std::chrono::steady_clock::now()};
+        std::vector<std::thread> producers;
+        for (int p{}; p < num_producers; ++p) {
+            producers.emplace_back([&, p] {
+                auto& lat = latencies_per_thread[p];
+                for (int i{}; i < items_per_producer; ++i) {
+                    const int value{p * items_per_producer + i};
+                    const auto t0{std::chrono::steady_clock::now()};
+                    while (!queue.push(value)) std::this_thread::yield();
+                    const auto t1{std::chrono::steady_clock::now()};
+                    lat.push_back(std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
+                    checksum_in.fetch_add(value, std::memory_order_relaxed);
+                }
+            });
+        }
 
-//     std::vector<std::thread> producers;
-//     for (int p = 0; p < num_producers; ++p) {
-//         producers.emplace_back([&, p] {
-//             auto& lat = latencies_per_thread[p];
-//             for (int i = 0; i < items_per_producer; ++i) {
-//                 int value = p * items_per_producer + i;
-//                 auto t0 = std::chrono::steady_clock::now();
-//                 while (!queue.push(value)) std::this_thread::yield();
-//                 auto t1 = std::chrono::steady_clock::now();
-//                 lat.push_back(std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
-//                 checksum_in.fetch_add(value, std::memory_order_relaxed);
-//             }
-//         });
-//     }
-//
-//     std::vector<std::thread> consumers;
-//     for (int c = 0; c < num_consumers; ++c) {
-//         consumers.emplace_back([&] {
-//             int value;
-//             while (consumed.load(std::memory_order_relaxed) < total) {
-//                 if (queue.pop(value)) {
-//                     checksum_out.fetch_add(value, std::memory_order_relaxed);
-//                     consumed.fetch_add(1, std::memory_order_relaxed);
-//                 } else {
-//                     std::this_thread::yield();
-//                 }
-//             }
-//         });
-//     }
-//
-//     for (auto& t : producers) t.join();
-//     for (auto& t : consumers) t.join();
-//
-//     auto end = std::chrono::steady_clock::now();
-//     double sec = std::chrono::duration<double>(end - start).count();
-//
-//     assert(checksum_in.load() == checksum_out.load() && "checksum mismatch!");
-//
-//     std::vector<long long> all_lat;
-//     for (auto& v : latencies_per_thread)
-//         all_lat.insert(all_lat.end(), v.begin(), v.end());
-//     std::sort(all_lat.begin(), all_lat.end());
-//
-//     auto percentile = [&](double p) -> double {
-//         size_t idx = static_cast<size_t>(p * (all_lat.size() - 1));
-//         return static_cast<double>(all_lat[idx]);
-//     };
-//
-//     BenchResult r;
-//     r.throughput_ops_sec = total / sec;
-//     r.p50_ns = percentile(0.50);
-//     r.p99_ns = percentile(0.99);
-//     r.p999_ns = percentile(0.999);
-//     return r;
+        std::vector<std::thread> consumers;
+        for (int c{}; c < num_consumers; ++c) {
+            consumers.emplace_back([&] {
+                int value;
+                while (consumed.load(std::memory_order_relaxed) < total) {
+                    if (queue.pop(value)) {
+                        checksum_out.fetch_add(value, std::memory_order_relaxed);
+                        consumed.fetch_add(1, std::memory_order_relaxed);
+                    } else {
+                        std::this_thread::yield();
+                    }
+                }
+            });
+        }
+
+        for (auto& t: producers) t.join();
+        for (auto& t: consumers) t.join();
+
+        const auto end{std::chrono::steady_clock::now()};
+        const auto sec{std::chrono::duration<double>(end - start).count()};
+
+        assert(checksum_in.load() == checksum_out.load() && "checksum mismatch!");
+
+        std::vector<long long> all_lat;
+        for (auto& v: latencies_per_thread) {
+            all_lat.insert(all_lat.end(), v.begin(), v.end());
+        }
+        std::ranges::sort(all_lat);
+        const auto percentile{[&](const double p) -> double {
+            const size_t idx{static_cast<size_t>(p * static_cast<double>(all_lat.size() - 1))};
+            return static_cast<double>(all_lat[idx]);
+        }};
+
+        BenchResult r{};
+        r.throughput_ops_sec = total / sec;
+        r.p50_ns = percentile(0.50);
+        r.p99_ns = percentile(0.99);
+        r.p999_ns = percentile(0.999);
+
+        return r;
     }
 
-// void print_result(const char* name, const BenchResult& r) {
-//     std::cout << name << ":\n"
-//               << "  throughput: " << static_cast<long long>(r.throughput_ops_sec) << " ops/sec\n"
-//               << "  latency p50:  " << r.p50_ns << " ns\n"
-//               << "  latency p99:  " << r.p99_ns << " ns\n"
-//               << "  latency p999: " << r.p999_ns << " ns\n";
-// }
+    void print_result(const std::string& name, const BenchResult& r) {
+        std::cout << std::format("{}:\n  throughput: {} pos/sec\n  latency p50: {} ns\n  latency p99: {} ns\n  latency p999: {} ns\n",
+            name,
+            static_cast<long long>(r.throughput_ops_sec),
+            r.p50_ns,
+            r.p99_ns,
+            r.p999_ns);
+    }
 }
 
 int main() {
-    //     constexpr size_t CAPACITY = 4096;
-    //     constexpr int ITEMS = 200'000;
-    //
-    //     for (auto [producers, consumers] : {std::pair{1,1}, std::pair{2,2}, std::pair{4,4}, std::pair{8,8}}) {
-    //         std::cout << "\n===== producers=" << producers << " consumers=" << consumers << " =====\n";
-    //         auto lockfree = run_bench<MPMCQueue<int>>(producers, consumers, ITEMS, CAPACITY);
-    //         auto mutex_based = run_bench<MutexQueue<int>>(producers, consumers, ITEMS, CAPACITY);
-    //         print_result("MPMC (lock-free)", lockfree);
-    //         print_result("Mutex + deque   ", mutex_based);
-    //         std::cout << "  speedup (throughput): " << (lockfree.throughput_ops_sec / mutex_based.throughput_ops_sec) << "x\n";
-    //     }
+    constexpr size_t CAPACITY{4096};
+    constexpr int ITEMS{200'000};
+
+    const std::vector<std::pair<int, int>> v{std::pair{1,1}, std::pair{2,2}, std::pair{4,4}, std::pair{8,8}};
+    for (auto& [producer, consumer] : v) {
+        std::cout << std::format("\n===== producers = {}, consumers = {} =====\n", producer, consumer);
+        const auto lock_free{run_bench<MPMCQueue<int>>(
+            producer,
+            consumer,
+            ITEMS,
+            CAPACITY)};
+        const auto mutex_based{run_bench<MutexQueue<int>>(
+            producer,
+            consumer,
+            ITEMS,
+            CAPACITY)};
+        print_result("MPMC (lock-free)", lock_free);
+        print_result("Mutex + deque", mutex_based);
+        std::cout << std::format("  speedup (throughput): {}x\n",
+            lock_free.throughput_ops_sec / mutex_based.throughput_ops_sec);
+    }
 
     return 0;
 }
