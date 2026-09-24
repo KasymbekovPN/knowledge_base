@@ -214,174 +214,205 @@ namespace {
 
         MPMSBus(const MPMSBus&) = delete;
 
+        bool try_push(T value) {
+            Cell* cell;
+            size_t pos{enqueue_pos_.load(std::memory_order_relaxed)};
+            for (;;) {
+                cell = &buffer_[pos & buffer_mask_];
+                const size_t seq{cell->sequence.load(std::memory_order_acquire)};
 
-//     bool try_push(T value) {
-//         Cell* cell; size_t pos = enqueue_pos_.load(std::memory_order_relaxed);
-//         for (;;) {
-//             cell = &buffer_[pos & buffer_mask_];
-//             size_t seq = cell->sequence.load(std::memory_order_acquire);
-//             intptr_t dif = (intptr_t)seq - (intptr_t)pos;
-//             if (dif == 0) { if (enqueue_pos_.compare_exchange_weak(pos, pos + 1, std::memory_order_relaxed)) break; }
-//             else if (dif < 0) return false;
-//             else pos = enqueue_pos_.load(std::memory_order_relaxed);
-//         }
-//         cell->data = std::move(value);
-//         cell->sequence.store(pos + 1, std::memory_order_release);
-//         return true;
-//     }
-//
-//     bool try_pop(T& result) {
-//         Cell* cell; size_t pos = dequeue_pos_.load(std::memory_order_relaxed);
-//         for (;;) {
-//             cell = &buffer_[pos & buffer_mask_];
-//             size_t seq = cell->sequence.load(std::memory_order_acquire);
-//             intptr_t dif = (intptr_t)seq - (intptr_t)(pos + 1);
-//             if (dif == 0) { if (dequeue_pos_.compare_exchange_weak(pos, pos + 1, std::memory_order_relaxed)) break; }
-//             else if (dif < 0) return false;
-//             else pos = dequeue_pos_.load(std::memory_order_relaxed);
-//         }
-//         result = std::move(cell->data);
-//         cell->sequence.store(pos + buffer_mask_ + 1, std::memory_order_release);
-//         return true;
-//     }
+                if (const intptr_t dif{static_cast<intptr_t>(seq) - static_cast<intptr_t>(pos)};
+                    dif == 0) {
+                    if (enqueue_pos_.compare_exchange_weak(pos, pos + 1, std::memory_order_relaxed)) break;
+                } else if (dif < 0) {
+                    return false;
+                } else {
+                    pos = enqueue_pos_.load(std::memory_order_relaxed);
+                }
+            }
+
+            cell->data = std::move(value);
+            cell->sequence.store(pos + 1, std::memory_order_release);
+
+            return true;
+        }
+
+        bool try_pop(T& result) {
+            Cell* cell;
+            size_t pos{dequeue_pos_.load(std::memory_order_relaxed)};
+            for (;;) {
+                cell = &buffer_[pos & buffer_mask_];
+                const size_t seq{cell->sequence.load(std::memory_order_acquire)};
+                if (const intptr_t dif{static_cast<intptr_t>(seq) - static_cast<intptr_t>(pos + 1)};
+                    dif == 0) {
+                    if (dequeue_pos_.compare_exchange_weak(pos, pos + 1, std::memory_order_relaxed)) break;
+                } else if (dif < 0) {
+                    return false;
+                } else {
+                    pos = dequeue_pos_.load(std::memory_order_relaxed);
+                }
+            }
+
+            result = std::move(cell->data);
+            cell->sequence.store(pos + buffer_mask_ + 1, std::memory_order_release);
+
+            return true;
+        }
     };
 
-// struct Task { socket_t client_fd; std::string data; };
-//
-// // ============================================================
-// // Reactor: единственный поток, крутит EventPoller::wait(), никогда
-// // не блокируется дольше таймаута. Логика идентична на обеих
-// // платформах -- разница спрятана внутри EventPoller.
-// // ============================================================
-// class Reactor {
-//     EventPoller poller_;
-//     socket_t listen_fd_;
-//     MPMCBus<Task>& task_queue_;
-//     std::atomic<bool>& running_;
-//
-// public:
-//     Reactor(socket_t listen_fd, MPMCBus<Task>& queue, std::atomic<bool>& running)
-//         : listen_fd_(listen_fd), task_queue_(queue), running_(running) {
-//         poller_.add(listen_fd_);
-//     }
-//
-//     void run() {
-//         while (running_.load(std::memory_order_relaxed)) {
-//             auto ready = poller_.wait(100);
-//
-//             for (socket_t fd : ready) {
-//                 if (fd == listen_fd_) {
-//                     socket_t client_fd = accept(listen_fd_, nullptr, nullptr);
-//                     if (client_fd == INVALID_SOCK) continue;
-//                     set_nonblocking(client_fd);
-//                     poller_.add(client_fd);
-//                 } else {
-//                     char buf[4096];
-//                     int n_read = socket_read(fd, buf, sizeof(buf));
-//                     if (n_read <= 0) {
-//                         poller_.remove(fd);
-//                         close_socket(fd);
-//                         continue;
-//                     }
-//                     Task task{fd, std::string(buf, n_read)};
-//                     if (!task_queue_.try_push(std::move(task))) {
-//                         std::cerr << "[reactor] task queue full, dropping\n";
-//                     }
-//                 }
-//             }
-//         }
-//     }
-// };
-//
-// void worker_loop(int worker_id, MPMCBus<Task>& queue, std::atomic<bool>& running,
-//                   std::atomic<long long>& processed) {
-//     Task task;
-//     while (running.load(std::memory_order_relaxed) || true) {
-//         if (queue.try_pop(task)) {
-//             std::string response = "[worker " + std::to_string(worker_id) + "] echo: " + task.data;
-//             socket_write(task.client_fd, response.data(), static_cast<int>(response.size()));
-//             processed.fetch_add(1, std::memory_order_relaxed);
-//         } else {
-//             if (!running.load(std::memory_order_relaxed)) break;
-//             std::this_thread::sleep_for(std::chrono::microseconds(100));
-//         }
-//     }
-// }
+    struct Task {
+        socket_t client_fd{};
+        std::string data;
+    };
 
+    // ============================================================
+    // Reactor: единственный поток, крутит EventPoller::wait(), никогда
+    // не блокируется дольше таймаута. Логика идентична на обеих
+    // платформах -- разница спрятана внутри EventPoller.
+    // ============================================================
+    class Reactor {
+        EventPoller poller_;
+        socket_t listen_fd_;
+        MPMSBus<Task>& task_queue_;
+        std::atomic<bool>& running_;
+
+    public:
+        explicit Reactor(const socket_t listen_fd,
+                         MPMSBus<Task>& task_queue,
+                         std::atomic<bool>& running):
+            listen_fd_{listen_fd},
+            task_queue_{task_queue},
+            running_{running} {
+
+            poller_.add(listen_fd_);
+        }
+
+        void run() {
+            while (running_.load(std::memory_order_relaxed)) {
+                for (const auto ready{poller_.wait(100)};
+                    const socket_t fd: ready) {
+                    if (fd == listen_fd_) {
+                        const socket_t client_fd{accept(listen_fd_, nullptr, nullptr)};
+                        if (client_fd == INVALID_SOCK) continue;
+                        set_nonblocking(client_fd);
+                        poller_.add(client_fd);
+                    } else {
+                        char buf[4096];
+                        const int n_read{socket_read(fd, buf, sizeof(buf))};
+                        if (n_read <= 0) {
+                            poller_.remove(fd);
+                            close_socket(fd);
+                            continue;
+                        }
+
+                        if (Task task{.client_fd = fd, .data = std::string(buf, n_read)};
+                            !task_queue_.try_push(std::move(task))) {
+                            std::cerr << std::format("[reactor] task queue full, dropping\n") << std::flush;
+                        }
+                    }
+                }
+            }
+        }
+    };
+
+    void worker_loop(const int worker_id,
+                     MPMSBus<Task>& queue,
+                     const std::atomic<bool>& running,
+                     std::atomic<long long>& processed) {
+        Task task;
+        while (/*running.load(std::memory_order_relaxed) ||*/ true) {
+            if (queue.try_pop(task)) {
+                std::string response{std::format("[worker {}] echo: {}", worker_id, task.data)};
+                socket_write(task.client_fd, response.data(), static_cast<int>(response.size()));
+                processed.fetch_add(1, std::memory_order_relaxed);
+            } else {
+                if (!running.load(std::memory_order_relaxed)) break;
+                std::this_thread::sleep_for(std::chrono::microseconds(100));
+            }
+        }
+    }
 
 }
 
 
 
 int main() {
+    constexpr int PORT{18891};
+    constexpr int NUM_WORKERS{4};
+    constexpr int  NUM_TEST_CLIENTS{20};
 
-    //     constexpr int PORT = 18891;
-//     constexpr int NUM_WORKERS = 4;
-//     constexpr int NUM_TEST_CLIENTS = 20;
-//
-//     WinsockInit winsock_guard;
-//
-//     socket_t listen_fd = socket(AF_INET, SOCK_STREAM, 0);
-//     int opt = 1;
-//     setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR,
-//                reinterpret_cast<const char*>(&opt), sizeof(opt));
-//     set_nonblocking(listen_fd);
-//
-//     sockaddr_in addr{};
-//     addr.sin_family = AF_INET;
-//     addr.sin_addr.s_addr = INADDR_ANY;
-//     addr.sin_port = htons(PORT);
-//     bind(listen_fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
-//     listen(listen_fd, 128);
-//
-//     MPMCBus<Task> task_queue(1024);
-//     std::atomic<bool> running{true};
-//     std::atomic<long long> processed{0};
-//
-//     Reactor reactor(listen_fd, task_queue, running);
-//     std::thread reactor_thread([&] { reactor.run(); });
-//
-//     std::vector<std::thread> workers;
-//     for (int w = 0; w < NUM_WORKERS; ++w) {
-//         workers.emplace_back(worker_loop, w, std::ref(task_queue), std::ref(running), std::ref(processed));
-//     }
-//
-//     std::this_thread::sleep_for(std::chrono::milliseconds(100));
-//
-//     std::vector<std::thread> test_clients;
-//     std::atomic<int> success_count{0};
-//     for (int c = 0; c < NUM_TEST_CLIENTS; ++c) {
-//         test_clients.emplace_back([&, c] {
-//             socket_t sock = socket(AF_INET, SOCK_STREAM, 0);
-//             sockaddr_in caddr{};
-//             caddr.sin_family = AF_INET;
-//             caddr.sin_port = htons(PORT);
-//             inet_pton(AF_INET, "127.0.0.1", &caddr.sin_addr);
-//
-//             if (connect(sock, reinterpret_cast<sockaddr*>(&caddr), sizeof(caddr)) != 0) {
-//                 close_socket(sock);
-//                 return;
-//             }
-//             std::string msg = "hello from client " + std::to_string(c);
-//             socket_write(sock, msg.data(), static_cast<int>(msg.size()));
-//
-//             char buf[256] = {};
-//             int n = socket_read(sock, buf, sizeof(buf) - 1);
-//             if (n > 0) success_count.fetch_add(1, std::memory_order_relaxed);
-//             close_socket(sock);
-//         });
-//     }
-//     for (auto& t : test_clients) t.join();
-//
-//     std::this_thread::sleep_for(std::chrono::milliseconds(200));
-//     running.store(false, std::memory_order_relaxed);
-//
-//     reactor_thread.join();
-//     for (auto& t : workers) t.join();
-//     close_socket(listen_fd);
-//
-//     std::cout << "Успешных клиентов: " << success_count.load() << " / " << NUM_TEST_CLIENTS << "\n";
-//     std::cout << "Задач обработано воркерами: " << processed.load() << "\n";
+    WinsockInit winsock_guard;
+
+    socket_t listen_fd{socket(AF_INET, SOCK_STREAM, 0)};
+    constexpr int opt {1};
+    setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, reinterpret_cast<const char*>(&opt), sizeof(opt));
+    set_nonblocking(listen_fd);
+
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = INADDR_ANY;
+    addr.sin_port = htons(PORT);
+    bind(listen_fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
+    listen(listen_fd, 128);
+
+    MPMSBus<Task> task_queue{1024};
+    std::atomic<bool> running{true};
+    std::atomic<long long> processed{0};
+
+    Reactor reactor{listen_fd, task_queue, running};
+    std::thread reactor_thread{[&reactor] { reactor.run(); }};
+
+    std::vector<std::thread> workers;
+    for (int w{}; w < NUM_WORKERS; ++w) {
+        workers.emplace_back(
+            worker_loop,
+            w,
+            std::ref(task_queue),
+            std::ref(running),
+            std::ref(processed));
+    }
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    std::vector<std::thread> test_clients;
+    std::atomic<int> success_count{0};
+    for (int c{}; c < NUM_TEST_CLIENTS; ++c) {
+        test_clients.emplace_back([&, c] {
+            socket_t sock{socket(AF_INET, SOCK_STREAM, 0)};
+            sockaddr_in caddr{};
+            caddr.sin_family = AF_INET;
+            caddr.sin_port = htons(PORT);
+            inet_pton(AF_INET, "127.0.0.1", &caddr.sin_addr);
+
+            if (connect(sock, reinterpret_cast<sockaddr*>(&caddr), sizeof(caddr)) != 0) {
+                close_socket(sock);
+                return;
+            }
+
+            std::string msg{std::format("hello from client {}", c)};
+            socket_write(sock, msg.data(), static_cast<int>(msg.size()));
+
+            char buf[256] = {};
+            if (const int n{socket_read(sock, buf, sizeof(buf) - 1)};
+                n > 0) {
+                const std::string resp{buf};
+                std::cout << std::format("{}\n", buf) << std::flush;
+                success_count.fetch_add(1, std::memory_order_relaxed);
+            }
+            close_socket(sock);
+        });
+    }
+    for (auto& t: test_clients) t.join();
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    running.store(false, std::memory_order_relaxed);
+
+    reactor_thread.join();
+    for (auto& t: workers) t.join();
+    close_socket(listen_fd);
+
+    std::cout << std::format("Success client: {} / {}\n", success_count.load(), NUM_TEST_CLIENTS);
+    std::cout << std::format("Total processed tasks: {}\n", processed.load());
 
     return 0;
 }

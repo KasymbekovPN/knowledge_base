@@ -3,7 +3,7 @@
   <component name="CMakePythonSetting">
     <option name="pythonIntegrationState" value="YES" />
   </component>
-  <component name="CMakeWorkspace" PROJECT_DIR="$PROJECT_DIR$/code/014_1 thread model - epoll">
+  <component name="CMakeWorkspace" PROJECT_DIR="$PROJECT_DIR$/code/016 message queue by client">
     <contentRoot DIR="$PROJECT_DIR$" />
   </component>
 </project>
