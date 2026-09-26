@@ -95,7 +95,7 @@ int main() {
 
 ## Шаг 1. Dockerfile для сборки окружения
 
-Создайте `Dockerfile` в одной папке с `main.cpp`:
+Создайте `Dockerfile-fifo` в одной папке с `main.cpp`:
 
 ```dockerfile
 FROM ubuntu:24.04

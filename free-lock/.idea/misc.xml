@@ -3,7 +3,7 @@
   <component name="CMakePythonSetting">
     <option name="pythonIntegrationState" value="YES" />
   </component>
-  <component name="CMakeWorkspace" PROJECT_DIR="$PROJECT_DIR$/code/016 message queue by client">
+  <component name="CMakeWorkspace" PROJECT_DIR="$PROJECT_DIR$/code/017_4 IPC - shared memory">
     <contentRoot DIR="$PROJECT_DIR$" />
   </component>
 </project>

@@ -1,11 +1,11 @@
 
 ```Dockerfile
 # ============================================================
-# Dockerfile-tsan -- окружение для сборки и прогона C++ lock-free
+# Dockerfile-fifo-tsan -- окружение для сборки и прогона C++ lock-free
 # кода под ThreadSanitizer (детектор гонок данных).
 #
 # Сборка:
-#   docker build -f Dockerfile-tsan -t lockfree-tsan .
+#   docker build -f Dockerfile-fifo-tsan -t lockfree-tsan .
 #
 # Запуск (одна команда, файл монтируется снаружи):
 #   docker run --rm -v "$(pwd)":/src -w /src lockfree-tsan \
@@ -53,11 +53,11 @@ CMD ["bash"]
 
 ```Dockerfile
 # ============================================================
-# Dockerfile-asan -- окружение для сборки и прогона C++ lock-free
+# Dockerfile-fifo-asan -- окружение для сборки и прогона C++ lock-free
 # кода под AddressSanitizer (+ встроенный LeakSanitizer).
 #
 # Сборка:
-#   docker build -f Dockerfile-asan -t lockfree-asan .
+#   docker build -f Dockerfile-fifo-asan -t lockfree-asan .
 #
 # Запуск (одна команда, файл монтируется снаружи):
 #   docker run --rm --cap-add=SYS_PTRACE --security-opt seccomp=unconfined \
@@ -106,8 +106,8 @@ CMD ["bash"]
 ```
 
 ```bash
-docker build -f Dockerfile.tsan -t lockfree-tsan .
-docker build -f Dockerfile.asan -t lockfree-asan .
+docker build -f Dockerfile-fifo.tsan -t lockfree-tsan .
+docker build -f Dockerfile-fifo.asan -t lockfree-asan .
 ```
 
 ## Запуск TSan
