@@ -1,13 +1,13 @@
 #!/bin/sh
-#set -e
-#
-#echo "=== launch sig_receiver ==="
-#./sig_receiver & SIG_RECEIVER=$!
-#
-#sleep 0.5
-#
-#echo "=== launch sig_sender ==="
-#./sig_sender
-#
-#wait "${SIG_RECEIVER}"
-#echo "=== both processes have been finished, EXIT: $? ==="
+set -e
+
+echo "=== launch shm_writer ==="
+./shm_writer & SHM_WRITER_PID=$!
+
+sleep 0.01
+
+echo "=== launch shm_reader ==="
+./shm_reader
+
+wait "${SHM_WRITER_PID}"
+echo "=== both processes have been finished, EXIT: $? ==="

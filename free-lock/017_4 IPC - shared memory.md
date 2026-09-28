@@ -37,111 +37,144 @@ void* ptr = mmap(nullptr, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
 
 Ключевая деталь, которая делает это возможным без единой правки к коду очереди: буфер хранится **встроенным массивом** (`T buffer_[Capacity]`), а не указателем — внутри структуры физически нет ничего, что ссылалось бы на "внешнюю" по отношению к ней память.Файлы сохранились с прошлого разбора. Пересоберу и перезапущу свежо, чтобы подтвердить, что всё ещё работает, прежде чем показать финальный код:Работает: `1..10` дошли по порядку, разные виртуальные адреса у двух процессов (`0x7f888b...` vs `0x7f749b...`), `EXIT: 0`. Предупреждение компилятора — ровно то самое ABI-нестабильное предупреждение про `hardware_destructive_interference_size`, что разбирали раньше, и здесь оно **особенно уместно**: writer и reader должны быть собраны одинаковым компилятором/флагами.
 
+#### CMakeLists.txt
+```cmake
+cmake_minimum_required(VERSION 4.4.2)
+project(demo CXX)
 
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
----
+add_library(shm_reader OBJECT shm_reader.cpp)
+add_library(shm_writer OBJECT shm_writer.cpp)
+```
 
-## Итоговый код
-
-**`shm_spsc.h`** (общий заголовок):
-
+#### shm_spsc.h
 ```cpp
 #pragma once
+
 #include <atomic>
 #include <new>
 
-template<typename T, size_t Capacity>
+template <typename T, size_t Capacity>
 class SPSCQueue {
-    static_assert((Capacity & (Capacity - 1)) == 0, "Capacity must be power of 2");
-    alignas(std::hardware_destructive_interference_size) std::atomic<size_t> write_pos_{0};
-    alignas(std::hardware_destructive_interference_size) std::atomic<size_t> read_pos_{0};
-    T buffer_[Capacity]{};   // встроенный массив -- ключевое свойство для shared memory
+    static_assert((Capacity & (Capacity - 1)) == 0, "Capacity must be a power of 2");
+
+    alignas(std::hardware_destructive_interference_size)
+        std::atomic<size_t> write_pos_{0};
+    alignas(std::hardware_destructive_interference_size)
+        std::atomic<size_t> read_pos_{0};
+
+    T buffer_[Capacity]{};
 
 public:
-    bool push(T value) {
-        size_t w = write_pos_.load(std::memory_order_relaxed);
-        size_t r = read_pos_.load(std::memory_order_acquire);
-        if (w - r >= Capacity) return false;
-        buffer_[w & (Capacity - 1)] = value;
+    [[nodiscard]] bool push(T value) {
+        const size_t w{write_pos_.load(std::memory_order_relaxed)};
+        if (const size_t r{read_pos_.load(std::memory_order_acquire)};
+            w - r >= Capacity) {
+            return false;
+        }
+        buffer_[w & (Capacity - 1)] = std::move(value);
         write_pos_.store(w + 1, std::memory_order_release);
+
         return true;
     }
 
-    bool pop(T& result) {
-        size_t r = read_pos_.load(std::memory_order_relaxed);
-        size_t w = write_pos_.load(std::memory_order_acquire);
-        if (r == w) return false;
-        result = buffer_[r & (Capacity - 1)];
+    [[nodiscard]] bool pop(T& result) {
+        const size_t r{read_pos_.load(std::memory_order_relaxed)};
+        if (const size_t w{write_pos_.load(std::memory_order_acquire)};
+            w == r) {
+            return false;
+        }
+
+        result = std::move(buffer_[r & (Capacity - 1)]);
         read_pos_.store(r + 1, std::memory_order_release);
+
         return true;
     }
 };
+
 ```
 
-**`shm_writer.cpp`:**
-
+### shm_writer.cpp
 ```cpp
 #include "shm_spsc.h"
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <iostream>
+#include <format>
 
 using Queue = SPSCQueue<int, 1024>;
 
-int main() {
-    const char* name = "/spsc_ipc_demo";
-    int fd = shm_open(name, O_CREAT | O_RDWR, 0666);
-    if (fd < 0) { perror("shm_open"); return 1; }
+int main(int argc, char *argv[]) {
+    constexpr auto name{"/spsc_ipc_demo"};
+    const int fd{shm_open(name, O_CREAT | O_RDWR, 0666)};
+    if (fd < 0) {
+        perror("[writer] shm_open");
+        return 1;
+    }
 
     ftruncate(fd, sizeof(Queue));
-    void* addr = mmap(nullptr, sizeof(Queue), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    if (addr == MAP_FAILED) { perror("mmap"); return 1; }
+    void* addr{mmap(nullptr, sizeof(Queue), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0)};
+    if (addr == MAP_FAILED) {
+        perror("[writer] mmap");
+        return 1;
+    }
 
     // placement new -- конструируем объект ПРЯМО в общей памяти,
     // только ОДИН процесс должен это делать
     auto* queue = new (addr) Queue();
 
-    std::cout << "[writer] mmap addr в этом процессе = " << addr << "\n";
-    for (int i = 1; i <= 10; ++i) {
+    std::cout << std::format("[writer] mmap addr in this process = {}\n", addr);
+    for (int i{1}; i <= 10; ++i) {
         while (!queue->push(i)) {}
     }
-    std::cout << "[writer] готово\n";
+    std::cout << "[writer] done\n";
 
     munmap(addr, sizeof(Queue));
     close(fd);
+
     return 0;
 }
+
 ```
 
-**`shm_reader.cpp`:**
-
+### shm_reader.cpp
 ```cpp
 #include "shm_spsc.h"
+
 #include <sys/mman.h>
 #include <fcntl.h>
 #include <unistd.h>
 #include <iostream>
+#include <format>
 
 using Queue = SPSCQueue<int, 1024>;
 
-int main() {
-    const char* name = "/spsc_ipc_demo";
-    int fd = shm_open(name, O_RDWR, 0666);
-    if (fd < 0) { perror("shm_open"); return 1; }
+int main(int argc, char *argv[]) {
+    constexpr auto name{"/spsc_ipc_demo"};
+    const int fd{shm_open(name, O_RDWR, 0666)};
+    if (fd < 0) {
+        perror("[reader] shm_open");
+        return 1;
+    }
 
-    void* addr = mmap(nullptr, sizeof(Queue), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-    if (addr == MAP_FAILED) { perror("mmap"); return 1; }
+    void* addr{mmap(nullptr, sizeof(Queue), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0)};
+    if (addr == MAP_FAILED) {
+        perror("[reader] mmap");
+        return 1;
+    }
 
     // НЕ вызываем placement new -- объект уже создан writer'ом,
     // просто переинтерпретируем те же байты в своём адресном пространстве
     auto* queue = reinterpret_cast<Queue*>(addr);
 
-    std::cout << "[reader] mmap addr в этом процессе = " << addr << "\n";
-    int value, count = 0;
+    std::cout << std::format("[reader] mmap addr in this process = {}\n", addr) << std::flush;
+    int value{}, count{};
     while (count < 10) {
         if (queue->pop(value)) {
-            std::cout << "[reader] получено: " << value << "\n";
+            std::cout << std::format("[reader] took: {}\n", value) << std::flush;
             ++count;
         }
     }
@@ -149,18 +182,62 @@ int main() {
     munmap(addr, sizeof(Queue));
     close(fd);
     shm_unlink(name);
+
     return 0;
 }
+
 ```
 
-**Сборка и запуск:**
+#### Dockerfile
+```Dockerfile
+### ============================================================
+### Сборка:
+###   docker build -f Dockerfile -t shm-demo .
+###
+### Запуск:
+###   docker run --rm shm-demo
+###
+### docker run --rm -it -v "${PWD}:/app" shm-demo bash
+###
+### ============================================================
 
-```bash
-g++ -std=c++20 -O2 shm_writer.cpp -o shm_writer -lrt
-g++ -std=c++20 -O2 shm_reader.cpp -o shm_reader -lrt
+FROM ubuntu:24.04
 
-./shm_writer &
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y --no-install-recommends g++ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+COPY shm_spsc.h shm_reader.cpp shm_writer.cpp run.sh /app/
+
+RUN g++ -std=c++20 -O2 shm_reader.cpp -o shm_reader -lrt
+
+RUN g++ -std=c++20 -O2 shm_writer.cpp -o shm_writer -lrt
+
+RUN chmod +x /app/run.sh
+
+CMD ["/app/run.sh"]
+
+```
+
+#### run.sh
+
+```shell
+#!/bin/sh
+set -e
+
+echo "=== launch shm_writer ==="
+./shm_writer & SHM_WRITER_PID=$!
+
+sleep 0.01
+
+echo "=== launch shm_reader ==="
 ./shm_reader
+
+wait "${SHM_WRITER_PID}"
+echo "=== both processes have been finished, EXIT: $? ==="
+
 ```
 
 ## Финальное сравнение всей серии IPC
@@ -221,8 +298,8 @@ Shared memory — единственный механизм в серии, тр�
 
 - [x] **Модель потоков**: thread-per-connection vs event loop (epoll/io_uring) + пул воркеров — lock-free структуры чаще всего нужны именно во второй модели, как shared-state между воркерами (2026.09.24)
 - [x] fd win  vs linux (2026.09.24)
-- [x] **Message queue на клиента**: SPSC от воркера к connection-writer (один producer — логика чата, один consumer — сетевой поток на отправку) (2026.09.24)
-- [ ] ipc & mmap теория и примеры
+- [x] **Message queue на клиента**: SPSC от воркера к connection-writer (один producer — логика чата, один consumer — сетевой поток на отправку) (2026.09.25)
+- [x] ipc & mmap теория и примеры (2026.09.27)
 - [ ] **Broadcast**: тут MPSC/MPMC не всегда лучший выбор — часто эффективнее copy-on-write список подписчиков (RCU-style) + каждому подписчику своя SPSC-очередь, чем один общий lock-free broadcast-канал
 - [ ] **Backpressure**: что делать, если consumer медленнее producer — bounded queue + drop policy vs unbounded + memory blowup
 - [ ] **Reclamation проблема**: если пользователь отключается, когда безопасно освободить его структуры при lock-free доступе (hazard pointers / epoch-based / RCU)
