@@ -1,5 +1,6 @@
 #include <iostream>
 #include <unordered_map>
+#include <bit>
 
 namespace {
     struct Point {
@@ -32,6 +33,10 @@ int main(int argc, char *argv[]) {
         it != map.end()) {
         std::cout << it->first << "\n" << std::flush;
     }
+
+    double x{123.456};
+    const std::uint64_t r{std::bit_cast<std::uint64_t>(x)};
+    std::cout << r << '\n';
 
     return 0;
 }
