@@ -30,6 +30,7 @@
 
 #include <iostream>
 #include <format>
+#include <inttypes.h>
 #include <queue>
 #include <vector>
 #include <set>
@@ -193,20 +194,28 @@ namespace {
             input->init_test(50, {295, 228, 145, 197, 177, 11, 236, 181, 86, 59, 252, 30, 111, 147, 66, 126, 203, 200, 254, 41, 85, 229, 205, 281, 142, 70, 220, 281, 142, 212, 183, 194, 118, 77, 42, 90, 77, 118, 119, 6, 248, 93, 134, 144, 2, 74, 214, 273, 189, 289});
             output->init_test(3588, 0, 17, {2, 7, 11, 17, 19, 22, 23, 24, 27, 28, 30, 32, 41, 47, 48, 49, 50});
         } else if constexpr (INPUT == 23) {
-            input->init_test(8, {8, 150, 160, 170, 180, 190, 200, 210, 0});
+            input->init_test(8, {150, 160, 170, 180, 190, 200, 210, 0});
             output->init_test(660, 1, 3, {5, 6, 7});
         } else {
             std::cout << "Bad input\n";
         }
     }
 
-    struct Compare {
-        bool operator()(const std::pair<int, int>& lhs, const std::pair<int, int>& rhs) const {
-            if (lhs.first == rhs.first) {
-                return lhs.second > rhs.second;
-            }
-            return lhs.first > rhs.first;
-        }
+    //<
+    // struct Compare {
+    //     bool operator()(const std::pair<int, int>& lhs, const std::pair<int, int>& rhs) const {
+    //         if (lhs.first == rhs.first) {
+    //             return lhs.second > rhs.second;
+    //         }
+    //         return lhs.first > rhs.first;
+    //     }
+    // };
+
+    enum class Direction: int {
+        UNKNOWN = -1,
+        LEFT = 1,
+        UP = 2,
+        RIGHT = 3,
     };
 
     void test() {
@@ -221,70 +230,101 @@ namespace {
             enrich_input_data(input, expected_output);
         }
 
-        input->print();
-        if (expected_output) expected_output->print();
-        if (gotten_output) gotten_output->print();
+        if constexpr (EXTENDED_LOG_ON) {
+            std::cout << "input:\n";
+            input->print();
+            std::cout << "expected_output:\n";
+            if (expected_output) expected_output->print();
+            std::cout << "gotten_output:\n";
+            if (gotten_output) gotten_output->print();
+        }
 
-// [INPUT] days: 5, prices: [35, 40, 101, 59, 63]
-// 235
-// 0 1
-// 5
+        std::vector<std::vector<int>> dp(input->days_num, std::vector<int>(input->days_num, -1));
+        // std::vector<std::vector<int>> direction(input->days_num, std::vector<int>(input->days_num, -1));
+        //<
+        std::vector<std::vector<Direction>> direction(input->days_num, std::vector<Direction>(input->days_num, Direction::UNKNOWN));
+        dp[0][input->prices[0] > THRESHOLD ? 1 : 0] = input->prices[0];
+
+        // |     ||  0  |     1   |    2    |     3   |     4   |    5     |  6   |   7  |
+        // -------------------------------------------------------------------------------
+        // | 150 || -1  |    150  |   -1    |    -1   |    -1   |    -1    |  -1  |  -1  |
+        // | 160 || 150 |    -1   |   310   |    -1   |    -1   |    -1    |  -1  |  -1  |
+        // | 170 || -1  |    310  |   -1    |    480  |    -1   |    -1    |  -1  |  -1  |
+        // | 180 || 310 |    -1   | 490 480 |    -1   |    660  |    -1    |  -1  |  -1  |
+        // | 190 || -1  | 500 480 |   -1    | 680 660 |    -1   |    850   |  -1  |  -1  |
+        // | 200 || 480 |    -1   | 680 660 |    -1   | 860 850 |    -1    | 1050 |  -1  |
+        // | 210 || -1  | 690 660 |   -1    | 860 850 |    -1   | 850 1050 |  -1  | 1260 |
+        // |  0  || 660 |    660  |   850   |   850   |    850  |    850   |  850 | 1260 |
+
+        for (int p{1}; p < input->days_num; ++p) {
+            const auto price{input->prices[p]};
+            const auto maybe_coupon{price > THRESHOLD};
+            const auto prev_p_idx{p - 1};
+            for (int d{}; d < input->days_num; ++d) {
+                const int prev_d{d - 1};
+                const int next_d{d + 1};
+
+                const int prev_d_coupon{
+                    prev_d >= 0 && dp[prev_p_idx][prev_d] != -1
+                    ? dp[prev_p_idx][prev_d]
+                    : -1
+                };
+                const int next_d_coupon{
+                    next_d < input->days_num && dp[prev_p_idx][next_d] != -1
+                    ? dp[prev_p_idx][next_d]
+                    : -1
+                };
+
+                if (maybe_coupon) {
+                    if (prev_d_coupon != -1) {
+                        auto& value{dp[p][d]};
+                        if (const auto new_value{prev_d_coupon + price};
+                            value == -1 || value > new_value)
+                        {
+                            value = new_value;
+                            direction[p][d] = Direction::LEFT;
+                        }
+                    }
+                } else {
+                    if (dp[p-1][d] != -1) {
+                        auto& old_value{dp[p][d]};
+                        if (const auto new_value{dp[p-1][d] + price};
+                            old_value == -1 || old_value > new_value)
+                        {
+                            old_value = new_value;
+                            direction[p][d] = Direction::UP;
+                        }
+                    }
+                }
+
+                if (next_d_coupon != -1) {
+                    if (auto& value{dp[p][d]}; value == -1 || value > next_d_coupon) {
+                        value = next_d_coupon;
+                        direction[p][d] = Direction::RIGHT;
+                    }
+                }
+            }
+        }
+
+        if constexpr (EXTENDED_LOG_ON) {
+            for (const auto& vec: dp) {
+                for (const auto i: vec) {
+                    std::cout << "\t" << i << " ";
+                }
+                std::cout << std::endl;
+            }
+
+            for (const auto& vec: direction) {
+                for (const auto i: vec) {
+                    std::cout << "\t" << static_cast<int>(i) << " ";
+                }
+                std::cout << std::endl;
+            }
+        }
 
         delete input;
         delete expected_output;
         delete gotten_output;
-
-        //<
-        // if constexpr (EXTENDED_LOG_ON) {
-        //     std::cout << std::format("Days: {}\nPrices:", day_quantity);
-        //     for (const auto price : prices) {
-        //         std::cout << std::format(" {}", price);
-        //     }
-        // }
-        //
-        // std::set<std::pair<int, int>, Compare> sorted_prices;
-        // for (int i{}; i < day_quantity; ++i) {
-        //     sorted_prices.insert(std::make_pair(prices[i], i));
-        // }
-        // if constexpr (EXTENDED_LOG_ON) {
-        //     std::cout << "\nsorted_prices:";
-        //     for (const auto&[fst, snd]: sorted_prices) {
-        //         std::cout << std::format(" [price: {}, idx: {}]", fst, snd);
-        //     }
-        //     std::cout << std::endl;
-        // }
-        //
-        //
-        // auto masks = std::vector<bool>(day_quantity, false);
-        // for (int day_idx{}; day_idx < day_quantity; ++day_idx) {
-        //     const auto price{prices[day_idx]};
-        //     if (masks[day_idx]) {
-        //         ++used_coupon;
-        //         //<
-        //         std::cout << std::format("1: {} {}\n", day_idx, price);
-        //         //<
-        //         coupon_days.emplace(day_idx);
-        //         continue;
-        //     }
-        //
-        //     total_sum += price;
-        //     if (price > THRESHOLD) {
-        //         ++total_coupon;
-        //         //<
-        //         std::cout << std::format("2: {}\n", price);
-        //         auto it{sorted_prices.begin()};
-        //         while (it != sorted_prices.end()) {
-        //             if (it->second > day_idx) {
-        //                 masks[it->second] = true;
-        //                 break;
-        //             }
-        //             sorted_prices.erase(it);
-        //             it = sorted_prices.begin();
-        //         }
-        //     }
-        // }
-        //
-        // print_ret(total_sum, total_coupon, used_coupon, coupon_days);
     }
 }
 
