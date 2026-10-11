@@ -40,12 +40,12 @@ namespace {
     }
 
     void test() {
-        int size[2];
-        for (int i{0}; i < 2; ++i) {
-            std::cin >> size[i];
-        }
+        // int size[2];
+        // for (int i{0}; i < 2; ++i) {
+        //     std::cin >> size[i];
+        // }
         // int size[2] {3, 2};
-        // int size[2] {31, 43};
+        int size[2] {31, 43};
         // int size[] {9, 5};
 
         const auto& R{size[0]};

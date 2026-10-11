@@ -30,7 +30,6 @@
 
 #include <iostream>
 #include <format>
-#include <inttypes.h>
 #include <queue>
 #include <vector>
 #include <set>
@@ -41,7 +40,31 @@ namespace {
     constexpr int THRESHOLD{100};
     constexpr bool REAL_INPUT_ON{false};
     constexpr bool EXTENDED_LOG_ON{true};
-    constexpr int INPUT{23};
+    // constexpr int INPUT{0}; // +
+    // constexpr int INPUT{1}; // +
+    // constexpr int INPUT{2}; // +
+    // constexpr int INPUT{3}; // +
+    // constexpr int INPUT{4}; // +
+    // constexpr int INPUT{5}; // +
+    // constexpr int INPUT{6}; // +
+    // constexpr int INPUT{7}; // +
+    // constexpr int INPUT{8}; // +
+    // constexpr int INPUT{9}; // +
+    // constexpr int INPUT{10}; // +
+    // constexpr int INPUT{11}; // +
+    // constexpr int INPUT{12}; // +
+    // constexpr int INPUT{13}; // +
+    // constexpr int INPUT{14}; // +
+    // constexpr int INPUT{15}; // +
+    // constexpr int INPUT{16}; // +
+    // constexpr int INPUT{17}; // +
+    // constexpr int INPUT{18}; // +
+    // constexpr int INPUT{19}; // +
+    // constexpr int INPUT{20}; // +
+    // constexpr int INPUT{21}; // +
+    // constexpr int INPUT{22}; // +
+    constexpr int INPUT{23}; //
+
 
     struct Input {
         int days_num{};
@@ -117,8 +140,7 @@ namespace {
         } else if constexpr (INPUT == 3) {
             input->init_test(5, {35, 40, 101, 59, 63});
             output->init_test(235, 0, 1, {5});
-        }
-        else if constexpr (INPUT == 4) {
+        } else if constexpr (INPUT == 4) {
             input->init_test(1, {50});
             output->init_test(50, 0, 0, {});
         }
@@ -201,15 +223,14 @@ namespace {
         }
     }
 
-    //<
-    // struct Compare {
-    //     bool operator()(const std::pair<int, int>& lhs, const std::pair<int, int>& rhs) const {
-    //         if (lhs.first == rhs.first) {
-    //             return lhs.second > rhs.second;
-    //         }
-    //         return lhs.first > rhs.first;
-    //     }
-    // };
+    struct Compare {
+        bool operator()(const std::pair<int, int>& lhs, const std::pair<int, int>& rhs) const {
+            if (lhs.first == rhs.first) {
+                return lhs.second < rhs.second;
+            }
+            return lhs.first > rhs.first;
+        }
+    };
 
     enum class Direction: int {
         UNKNOWN = -1,
@@ -221,7 +242,7 @@ namespace {
     void test() {
         const auto input{new Input{}};
         Output* expected_output{};
-        Output* const gotten_output{new Output{}};
+        const auto gotten_output{new Output{}};
 
         if constexpr (REAL_INPUT_ON) {
             input->init();
@@ -235,91 +256,163 @@ namespace {
             input->print();
             std::cout << "expected_output:\n";
             if (expected_output) expected_output->print();
-            std::cout << "gotten_output:\n";
-            if (gotten_output) gotten_output->print();
         }
 
-        std::vector<std::vector<int>> dp(input->days_num, std::vector<int>(input->days_num, -1));
-        // std::vector<std::vector<int>> direction(input->days_num, std::vector<int>(input->days_num, -1));
-        //<
-        std::vector<std::vector<Direction>> direction(input->days_num, std::vector<Direction>(input->days_num, Direction::UNKNOWN));
-        dp[0][input->prices[0] > THRESHOLD ? 1 : 0] = input->prices[0];
+        if (input->days_num == 1) {
+            const auto& price{input->prices[0]};
+            gotten_output->min_sum = price;
+            if (price > THRESHOLD) gotten_output->not_used_coupon = 1;
 
-        // |     ||  0  |     1   |    2    |     3   |     4   |    5     |  6   |   7  |
-        // -------------------------------------------------------------------------------
-        // | 150 || -1  |    150  |   -1    |    -1   |    -1   |    -1    |  -1  |  -1  |
-        // | 160 || 150 |    -1   |   310   |    -1   |    -1   |    -1    |  -1  |  -1  |
-        // | 170 || -1  |    310  |   -1    |    480  |    -1   |    -1    |  -1  |  -1  |
-        // | 180 || 310 |    -1   | 490 480 |    -1   |    660  |    -1    |  -1  |  -1  |
-        // | 190 || -1  | 500 480 |   -1    | 680 660 |    -1   |    850   |  -1  |  -1  |
-        // | 200 || 480 |    -1   | 680 660 |    -1   | 860 850 |    -1    | 1050 |  -1  |
-        // | 210 || -1  | 690 660 |   -1    | 860 850 |    -1   | 850 1050 |  -1  | 1260 |
-        // |  0  || 660 |    660  |   850   |   850   |    850  |    850   |  850 | 1260 |
+        } else {
+            std::vector<std::vector<int>> dp(input->days_num, std::vector<int>(input->days_num, -1));
+            std::vector<std::vector<Direction>> direction(input->days_num, std::vector<Direction>(input->days_num, Direction::UNKNOWN));
+            dp[0][input->prices[0] > THRESHOLD ? 1 : 0] = input->prices[0];
 
-        for (int p{1}; p < input->days_num; ++p) {
-            const auto price{input->prices[p]};
-            const auto maybe_coupon{price > THRESHOLD};
-            const auto prev_p_idx{p - 1};
-            for (int d{}; d < input->days_num; ++d) {
-                const int prev_d{d - 1};
-                const int next_d{d + 1};
+            std::priority_queue<std::pair<int, int>, std::vector<std::pair<int, int>>, Compare> pq;
+            for (int p{1}; p < input->days_num; ++p) {
+                const auto price{input->prices[p]};
+                const auto maybe_coupon{price > THRESHOLD};
+                const auto prev_p_idx{p - 1};
+                for (int d{}; d < input->days_num; ++d) {
+                    const int prev_d{d - 1};
+                    const int next_d{d + 1};
 
-                const int prev_d_coupon{
-                    prev_d >= 0 && dp[prev_p_idx][prev_d] != -1
-                    ? dp[prev_p_idx][prev_d]
-                    : -1
-                };
-                const int next_d_coupon{
-                    next_d < input->days_num && dp[prev_p_idx][next_d] != -1
-                    ? dp[prev_p_idx][next_d]
-                    : -1
-                };
+                    const int prev_d_coupon{
+                        prev_d >= 0 && dp[prev_p_idx][prev_d] != -1
+                        ? dp[prev_p_idx][prev_d]
+                        : -1
+                    };
+                    const int next_d_coupon{
+                        next_d < input->days_num && dp[prev_p_idx][next_d] != -1
+                        ? dp[prev_p_idx][next_d]
+                        : -1
+                    };
 
-                if (maybe_coupon) {
-                    if (prev_d_coupon != -1) {
-                        auto& value{dp[p][d]};
-                        if (const auto new_value{prev_d_coupon + price};
-                            value == -1 || value > new_value)
-                        {
-                            value = new_value;
-                            direction[p][d] = Direction::LEFT;
+                    if (maybe_coupon) {
+                        if (prev_d_coupon != -1) {
+                            auto& value{dp[p][d]};
+                            if (const auto new_value{prev_d_coupon + price};
+                                value == -1 || value > new_value)
+                            {
+                                value = new_value;
+                                direction[p][d] = Direction::LEFT;
+                            }
+                        }
+                    } else {
+                        if (dp[p-1][d] != -1) {
+                            auto& old_value{dp[p][d]};
+                            if (const auto new_value{dp[p-1][d] + price};
+                                old_value == -1 || old_value > new_value)
+                            {
+                                old_value = new_value;
+                                direction[p][d] = Direction::UP;
+                            }
                         }
                     }
-                } else {
-                    if (dp[p-1][d] != -1) {
-                        auto& old_value{dp[p][d]};
-                        if (const auto new_value{dp[p-1][d] + price};
-                            old_value == -1 || old_value > new_value)
-                        {
-                            old_value = new_value;
-                            direction[p][d] = Direction::UP;
+
+                    if (next_d_coupon != -1) {
+                        if (auto& value{dp[p][d]}; value == -1 || value > next_d_coupon) {
+                            value = next_d_coupon;
+                            direction[p][d] = Direction::RIGHT;
                         }
                     }
-                }
 
-                if (next_d_coupon != -1) {
-                    if (auto& value{dp[p][d]}; value == -1 || value > next_d_coupon) {
-                        value = next_d_coupon;
-                        direction[p][d] = Direction::RIGHT;
-                    }
+                    if (p == input->days_num - 1 && dp[p][d] != -1) pq.emplace(dp[p][d], d);
                 }
             }
+
+            auto [min_sum, d_idx] = pq.top();
+            auto p_idx{input->days_num - 1};
+            const auto final_balance{d_idx};
+
+            while (direction[p_idx][d_idx] != Direction::UNKNOWN) {
+                switch (direction[p_idx][d_idx]) {
+                    case Direction::UP: {
+                        --p_idx;
+                        break;
+                    }
+                    case Direction::RIGHT: {
+                        gotten_output->coupon_days.emplace(p_idx + 1);
+                        --p_idx;
+                        ++d_idx;
+                        break;
+                    }
+                    case Direction::LEFT: {
+                        --p_idx;
+                        --d_idx;
+                        break;
+                    }
+                    case Direction::UNKNOWN:
+                        break;
+                }
+            }
+
+            gotten_output->min_sum = min_sum;
+            gotten_output->used_coupon = static_cast<int>(gotten_output->coupon_days.size());
+            gotten_output->not_used_coupon = final_balance;
+
+            if constexpr (EXTENDED_LOG_ON) {
+                std::cout << "gotten_output:\n";
+                if (gotten_output) gotten_output->print();
+
+                std::cout << "final_balance (K1): " << final_balance << std::endl;
+
+                for (const auto& vec: dp) {
+                    for (const auto i: vec) {
+                        std::cout << "\t" << i << " ";
+                    }
+                    std::cout << std::endl;
+                }
+
+                for (const auto& vec: direction) {
+                    for (const auto i: vec) {
+                        std::cout << "\t" << static_cast<int>(i) << " ";
+                    }
+                    std::cout << std::endl;
+                }
+
+                auto pq_copy{pq};
+                while (!pq_copy.empty()) {
+                    const auto [fst, snd]{pq_copy.top()};
+                    pq_copy.pop();
+                    std::cout << "[" << fst << ", " << snd << "] ";
+                }
+            }
+        }
+
+        if constexpr (REAL_INPUT_ON) {
+            gotten_output->print();
         }
 
         if constexpr (EXTENDED_LOG_ON) {
-            for (const auto& vec: dp) {
-                for (const auto i: vec) {
-                    std::cout << "\t" << i << " ";
-                }
-                std::cout << std::endl;
+            const auto ok_min_sum{expected_output->min_sum == gotten_output->min_sum};
+            const auto ok_used_coupon{expected_output->used_coupon == gotten_output->used_coupon};
+            const auto ok_not_used_coupon{expected_output->not_used_coupon == gotten_output->not_used_coupon};
+
+            std::vector<int> expected_coupon_days;
+            expected_coupon_days.reserve(expected_output->coupon_days.size());
+            while (!expected_output->coupon_days.empty()) {
+                expected_coupon_days.emplace_back(expected_output->coupon_days.top());
+                expected_output->coupon_days.pop();
             }
 
-            for (const auto& vec: direction) {
-                for (const auto i: vec) {
-                    std::cout << "\t" << static_cast<int>(i) << " ";
-                }
-                std::cout << std::endl;
+            std::vector<int> gotten_coupon_days;
+            gotten_coupon_days.reserve(gotten_output->coupon_days.size());
+            while (!gotten_output->coupon_days.empty()) {
+                gotten_coupon_days.emplace_back(gotten_output->coupon_days.top());
+                gotten_output->coupon_days.pop();
             }
+
+            const auto ok_coupon_days{expected_coupon_days == gotten_coupon_days};
+
+            std::cout << std::boolalpha
+                << "\nmin_sum: " << ok_min_sum
+                << "\nused_coupon: " << ok_used_coupon
+                << "\nnot_used_coupon: " << ok_not_used_coupon
+                << "\ncoupon_days: " << ok_coupon_days
+                << std::noboolalpha
+                << ((ok_min_sum && ok_used_coupon && ok_not_used_coupon && ok_coupon_days) ? "\nOK" : "\nFAIL")
+                << std::endl;
         }
 
         delete input;
