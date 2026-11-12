@@ -1,0 +1,168 @@
+#include <iostream>
+#include <string>
+#include <cstddef>
+#include <vector>
+#include <chrono>
+#include <random>
+
+namespace {
+
+std::size_t get_id(const int id) { return static_cast<std::size_t>(id); };
+
+// nums1 has m + n elements: the first m are sorted, the last n are zeros that are only padding.
+// nums2 has n sorted elements. Merge nums2 into nums1 so that the whole nums1 is sorted.
+// Do it in place, nums2 must stay unchanged, no extra array.
+void merge(std::vector<int>& nums1, int m, const std::vector<int>& nums2, int n) {
+	int left{m - 1};
+	int right{n - 1};
+	int target{m + n - 1};
+
+    while (right >= 0) {
+	    if (left >= 0 && nums1[get_id(left)] > nums2[get_id(right)]) {
+		    nums1[get_id(target--)] = nums1[get_id(left--)];
+	    } else {
+		    nums1[get_id(target--)] = nums2[get_id(right--)];
+	    }
+    }
+}
+
+void report(const std::string& label, bool ok) {
+    std::cout << label << ": " << (ok ? "OK" : "FAIL") << '\n';
+}
+
+void test_merge(const std::string& label, std::vector<int> first, std::vector<int> second) {
+    std::vector<int> expected = first;
+    expected.insert(expected.end(), second.begin(), second.end());
+    std::sort(expected.begin(), expected.end());
+    std::vector<int> nums1 = first;
+    nums1.resize(first.size() + second.size(), 0);
+    const std::vector<int> nums2 = second;
+    merge(nums1, static_cast<int>(first.size()), nums2, static_cast<int>(second.size()));
+    report(label, nums1 == expected && nums2 == second);
+}
+
+void test_big(const std::string& label, std::vector<int> first, std::vector<int> second) {
+    std::vector<int> expected = first;
+    expected.insert(expected.end(), second.begin(), second.end());
+    std::sort(expected.begin(), expected.end());
+    std::vector<int> nums1 = first;
+    nums1.resize(first.size() + second.size(), 0);
+    const std::vector<int> nums2 = second;
+    const auto start = std::chrono::steady_clock::now();
+    merge(nums1, static_cast<int>(first.size()), nums2, static_cast<int>(second.size()));
+    const auto elapsed = std::chrono::steady_clock::now() - start;
+    const bool fast = elapsed < std::chrono::seconds(1);
+    report(label + (fast ? "" : " (too slow)"), nums1 == expected && nums2 == second && fast);
+}
+
+void test_all() {
+	test_merge("description example 1",
+		{1, 2, 3},
+		{2, 5, 6});
+	test_merge("description example 2",
+		{1},
+		{});
+	test_merge("description example 3",
+		{},
+		{1});
+	test_merge("all of nums2 is smaller",
+		{4, 5, 6},
+		{1, 2, 3});
+	test_merge("all of nums2 is larger",
+		{1, 2, 3},
+		{4, 5, 6});
+	test_merge("interleaved",
+		{1, 3, 5, 7},
+		{2, 4, 6, 8});
+	test_merge("nums2 shorter",
+		{1, 2, 3, 4, 5, 6},
+		{3});
+	test_merge("nums2 longer",
+		{3},
+		{1, 2, 3, 4, 5, 6});
+	test_merge("equal elements everywhere",
+		{2, 2, 2},
+		{2, 2});
+	test_merge("negative values",
+		{-5, -3, -1},
+		{-4, -2, 0});
+	test_merge("negative values and zeros in nums1",
+		{-3, -1, 0, 0},
+		{-2, 0, 1});
+	test_merge("extreme values",
+		{-2147483648, 0, 2147483647},
+		{-2147483648, 2147483647});
+	test_merge("one element each, nums2 first",
+		{5},
+		{1});
+	test_merge("one element each, nums1 first",
+		{1},
+		{5});
+	test_merge("one element each, equal",
+		{3},
+		{3});
+	test_merge("duplicates across the arrays",
+		{1, 1, 2, 2, 3, 3},
+		{1, 2, 3});
+	test_merge("nums1 values are all greater than the padding",
+		{7, 8, 9},
+		{1, 2});
+	test_merge("random 1: m=5, n=5",
+		{4, 4, 4, 6, 7},
+		{-5, -4, 5, 6, 8});
+	test_merge("random 2: m=10, n=3",
+		{-15, -14, -11, -9, -1, 8, 14, 19, 20, 20},
+		{-18, 5, 18});
+	test_merge("random 3: m=3, n=10",
+		{-10, 8, 19},
+		{-20, -19, -18, -17, -16, -8, -5, 13, 18, 19});
+	test_merge("random 4: m=30, n=30",
+		{-50, -47, -42, -40, -40, -25, -21, -21, -18, -15, -14, -13, -10, -9, 2, 6, 8, 9, 13, 15, 16, 20, 22, 25, 31, 33, 34, 40, 47, 49},
+		{-50, -49, -48, -44, -42, -41, -39, -37, -37, -25, -24, -23, -16, -13, -11, -8, -7, -2, -1, 0, 1, 3, 10, 22, 30, 36, 37, 40, 48, 49});
+	test_merge("random 5: m=100, n=50",
+		{-5, -5, -5, -5, -5, -5, -5, -5, -5, -4, -4, -4, -4, -4, -4, -4, -4, -4, -4, -4, -3, -3, -3, -3, -3, -3, -3, -3, -3, -3, -3, -3, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -2, -1, -1, -1, -1, -1, -1, -1, -1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5, 5},
+		{-5, -5, -5, -5, -5, -5, -5, -4, -4, -4, -4, -4, -4, -3, -3, -3, -3, -3, -2, -2, -2, -2, -1, -1, -1, -1, -1, 0, 0, 0, 0, 0, 1, 2, 2, 2, 2, 2, 3, 3, 3, 4, 4, 4, 4, 4, 4, 5, 5, 5});
+
+	// ---- big tests ----
+	{
+		std::mt19937 gen(1);
+		std::vector<int> a(1000000), b(1000000);
+		for (int& x : a) x = static_cast<int>(gen());
+		for (int& x : b) x = static_cast<int>(gen());
+		std::sort(a.begin(), a.end());
+		std::sort(b.begin(), b.end());
+		test_big("big: 1000000 + 1000000 random values", a, b);
+	}
+	{
+		std::vector<int> a(1000000), b(1000000);
+		for (std::size_t i = 0; i < a.size(); ++i) { a[i] = static_cast<int>(2 * i + 1000000); b[i] = static_cast<int>(2 * i + 1000001); }
+		test_big("big: 1000000 + 1000000 interleaved", a, b);
+	}
+	{
+		std::vector<int> a(1000000), b(1000000);
+		for (std::size_t i = 0; i < a.size(); ++i) { a[i] = static_cast<int>(i) + 5000000; b[i] = static_cast<int>(i); }
+		test_big("big: 1000000 + 1000000, nums2 entirely smaller (every element of nums1 moves)", a, b);
+	}
+	{
+		std::vector<int> a(1000000), b(1000000);
+		for (std::size_t i = 0; i < a.size(); ++i) { a[i] = static_cast<int>(i); b[i] = static_cast<int>(i) + 5000000; }
+		test_big("big: 1000000 + 1000000, nums2 entirely larger", a, b);
+	}
+	{
+		std::vector<int> a(1000000, 7), b(1000000, 7);
+		test_big("big: 1000000 + 1000000 equal values", a, b);
+	}
+	{
+		std::vector<int> a(1000000), b(5);
+		for (std::size_t i = 0; i < a.size(); ++i) a[i] = static_cast<int>(i);
+		b = {-5, 3, 500000, 999999, 2000000};
+		test_big("big: 1000000 + 5", a, b);
+	}
+}
+
+}  // namespace
+
+int main() {
+	test_all();
+	return 0;
+}

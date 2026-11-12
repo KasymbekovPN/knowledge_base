@@ -1,0 +1,255 @@
+Простите, я пропустил само условие: писал про проверку, а текст не отправил. Вот оно.
+
+**Блок 8, задача 3: Time Based Key-Value Store**
+
+**Условие.** Реализуйте хранилище, которое помнит все значения ключа по меткам времени:
+
+- `set(key, value, timestamp)` сохраняет `value` для `key` на момент `timestamp`.
+- `get(key, timestamp)` возвращает значение, сохранённое для `key` с наибольшей меткой `timestamp_prev <= timestamp`. Если такой метки нет (ключа нет или все метки больше `timestamp`), возвращает пустую строку `""`.
+
+**Сигнатура:**
+
+```cpp
+class TimeMap {
+public:
+    void set(const std::string& key, const std::string& value, int timestamp);
+    std::string get(const std::string& key, int timestamp);
+};
+```
+
+**Ограничения:**
+
+- до 10^6 операций, метки времени — весь диапазон `int`;
+- для одного ключа вызовы `set` идут со строго возрастающими метками;
+- значения — строки до 1000 символов.
+
+**Пример:** `set("love","high",10)`, `get("love",10)` даёт `"high"`, `get("love",15)` даёт `"high"`, `set("love","low",20)`, `get("love",5)` даёт `""`, `get("love",25)` даёт `"low"`.
+
+**Вопросы интервьюера:**
+
+1. Какая сложность у `set` и `get`? Какую структуру вы выбрали для значений одного ключа и почему не `std::map`?
+2. Что изменится, если метки при `set` приходят в произвольном порядке?
+3. Как не копировать строку при поиске?
+
+**Целевая сложность:** `set` — O(1) амортизированно, `get` — O(log m), где m — число записей ключа.
+
+**Время:** 15–20 минут.
+
+Шаблон лежит в файле `TimeMap_task.cpp`: заглушка `TimeMap`, 20 сценариев, 4 больших теста с лимитом 1 с. `#include` в нём нет. Если компилятор пожалуется, например `'std::chrono' has not been declared`, подключите нужный заголовок сами. Тест с ограничением по времени прервать не может: если решение линейное, большие тесты будут идти долго, прервите их через `Ctrl+C`.
+
+Задача выдана: условие в этом сообщении, шаблон в файле `TimeMap_task.cpp`. Эталонное решение проходит все 24 теста, заглушка проваливает все 24. Проверка неверных вариантов (линейный поиск, `lower_bound`, копирование вектора) ещё идёт в фоне. Если она найдёт проблему в тестах, я сообщу. Пришлите решение вложением, как обычно.
+
+---
+
+22:41 - 23:04
+
+---
+
+---
+
+```cpp
+#include <iostream>
+#include <format>
+#include <string>
+#include <vector>
+#include <cstddef>
+#include <map>
+#include <unordered_map>
+#include <utility>
+#include <random>
+#include <chrono>
+
+namespace {
+
+class TimeMap {
+	std::unordered_map<std::string, std::vector<std::pair<int, std::string>>> storage_;
+
+public:
+    void set(const std::string& key, const std::string& value, const int timestamp) {
+	    storage_[key].emplace_back(timestamp, value);
+    }
+
+    std::string get(const std::string& key, const int timestamp) {
+		const auto it{storage_.find(key)};
+	    if (it == storage_.end()) return "";
+
+	    const auto& vec{it->second};
+	    std::size_t lo{0};
+	    std::size_t hi{vec.size()};
+	    while (lo < hi) {
+	        const std::size_t mid{lo + (hi - lo) / 2};
+	        if (vec[mid].first <= timestamp) {
+	            lo = mid + 1;
+	        } else {
+	            hi = mid;
+	        }
+	    }
+
+	    return lo == 0 ? std::string{} : vec[lo - 1].second;
+	}
+};
+
+struct Op {
+    bool is_set;
+    std::string key;
+    std::string value;  // only for set
+    int timestamp;
+};
+
+Op S(const std::string& key, const std::string& value, int timestamp) {
+    return {true, key, value, timestamp};
+}
+Op G(const std::string& key, int timestamp) { return {false, key, "", timestamp}; }
+
+void report(const std::string& label, bool ok) {
+    std::cout << label << ": " << (ok ? "OK" : "FAIL") << '\n';
+}
+
+// Independent reference: for every key a map timestamp -> value.
+class Model {
+public:
+    void set(const std::string& key, const std::string& value, int timestamp) {
+        data_[key][timestamp] = value;
+    }
+    std::string get(const std::string& key, int timestamp) const {
+        const auto it = data_.find(key);
+        if (it == data_.end()) return "";
+        const auto pos = it->second.upper_bound(timestamp);
+        if (pos == it->second.begin()) return "";
+        return std::prev(pos)->second;
+    }
+
+private:
+    std::map<std::string, std::map<int, std::string>> data_;
+};
+
+void test_script(const std::string& label, const std::vector<Op>& ops) {
+    TimeMap tm;
+    Model model;
+    bool ok = true;
+    for (const Op& op : ops) {
+        if (op.is_set) {
+            tm.set(op.key, op.value, op.timestamp);
+            model.set(op.key, op.value, op.timestamp);
+        } else {
+            ok = ok && tm.get(op.key, op.timestamp) == model.get(op.key, op.timestamp);
+        }
+    }
+    report(label, ok);
+}
+
+// Runs the operations on the solution only (timed), then checks the answers.
+void test_big(const std::string& label, const std::vector<Op>& ops) {
+    std::vector<std::string> answers(ops.size());
+    const auto start = std::chrono::steady_clock::now();
+    {
+        TimeMap tm;
+        for (std::size_t i = 0; i < ops.size(); ++i) {
+            if (ops[i].is_set) tm.set(ops[i].key, ops[i].value, ops[i].timestamp);
+            else answers[i] = tm.get(ops[i].key, ops[i].timestamp);
+        }
+    }
+    const auto elapsed = std::chrono::steady_clock::now() - start;
+    Model model;
+    bool correct = true;
+    for (std::size_t i = 0; i < ops.size() && correct; ++i) {
+        if (ops[i].is_set) model.set(ops[i].key, ops[i].value, ops[i].timestamp);
+        else correct = answers[i] == model.get(ops[i].key, ops[i].timestamp);
+    }
+    const bool fast = elapsed < std::chrono::seconds(1);
+    report(label + (fast ? "" : " (too slow)"), correct && fast);
+}
+
+void test_all() {
+	test_script("description example",
+		{S("love", "high", 10), G("love", 10), G("love", 15), S("love", "low", 20), G("love", 5), G("love", 10), G("love", 15), G("love", 20), G("love", 25)});
+	test_script("unknown key",
+		{G("a", 1), S("a", "x", 1), G("b", 1), G("b", 100)});
+	test_script("query before the first timestamp",
+		{S("k", "v", 10), G("k", 9), G("k", 10), G("k", 11), G("k", 0), G("k", -5)});
+	test_script("exact timestamp match",
+		{S("k", "a", 1), S("k", "b", 2), S("k", "c", 3), G("k", 1), G("k", 2), G("k", 3)});
+	test_script("between timestamps returns the earlier value",
+		{S("k", "a", 10), S("k", "b", 20), S("k", "c", 30), G("k", 15), G("k", 25), G("k", 29), G("k", 19)});
+	test_script("after the last timestamp returns the last value",
+		{S("k", "a", 1), S("k", "b", 2), G("k", 1000000000), G("k", 2147483647)});
+	test_script("a single entry",
+		{S("k", "only", 5), G("k", 4), G("k", 5), G("k", 6)});
+	test_script("keys are independent",
+		{S("a", "a1", 1), S("b", "b1", 2), S("a", "a2", 3), S("b", "b2", 4), G("a", 2), G("b", 2), G("a", 3), G("b", 3), G("b", 4), G("c", 4)});
+	test_script("same timestamp in different keys",
+		{S("a", "x", 5), S("b", "y", 5), G("a", 5), G("b", 5)});
+	test_script("empty string is a valid value",
+		{S("k", "", 1), S("k", "v", 2), G("k", 1), G("k", 2)});
+	test_script("the value for a missing entry is the empty string, not the previous key's value",
+		{S("a", "va", 1), G("b", 1), S("b", "vb", 5), G("b", 4), G("a", 4)});
+	test_script("interleaved sets and gets",
+		{S("k", "1", 1), G("k", 1), S("k", "2", 2), G("k", 1), G("k", 2), S("k", "3", 3), G("k", 2), G("k", 3)});
+	test_script("the lowest and the highest timestamp",
+		{S("k", "lo", -2147483648), S("k", "hi", 2147483647), G("k", -2147483648), G("k", 0), G("k", 2147483647)});
+	test_script("many entries, binary search at every position",
+		{S("k", "v1", 10), S("k", "v2", 20), S("k", "v3", 30), S("k", "v4", 40), S("k", "v5", 50), S("k", "v6", 60), S("k", "v7", 70), S("k", "v8", 80), S("k", "v9", 90), S("k", "v10", 100), S("k", "v11", 110), S("k", "v12", 120), S("k", "v13", 130), S("k", "v14", 140), S("k", "v15", 150), S("k", "v16", 160), S("k", "v17", 170), S("k", "v18", 180), S("k", "v19", 190), S("k", "v20", 200), S("k", "v21", 210), S("k", "v22", 220), S("k", "v23", 230), S("k", "v24", 240), S("k", "v25", 250), S("k", "v26", 260), S("k", "v27", 270), S("k", "v28", 280), S("k", "v29", 290), S("k", "v30", 300), G("k", 0), G("k", 1), G("k", 2), G("k", 3), G("k", 4), G("k", 5), G("k", 6), G("k", 7), G("k", 8), G("k", 9), G("k", 10), G("k", 11), G("k", 12), G("k", 13), G("k", 14), G("k", 15), G("k", 16), G("k", 17), G("k", 18), G("k", 19), G("k", 20), G("k", 21), G("k", 22), G("k", 23), G("k", 24), G("k", 25), G("k", 26), G("k", 27), G("k", 28), G("k", 29), G("k", 30), G("k", 31), G("k", 32), G("k", 33), G("k", 34), G("k", 35), G("k", 36), G("k", 37), G("k", 38), G("k", 39), G("k", 40), G("k", 41), G("k", 42), G("k", 43), G("k", 44), G("k", 45), G("k", 46), G("k", 47), G("k", 48), G("k", 49), G("k", 50), G("k", 51), G("k", 52), G("k", 53), G("k", 54), G("k", 55), G("k", 56), G("k", 57), G("k", 58), G("k", 59), G("k", 60), G("k", 61), G("k", 62), G("k", 63), G("k", 64), G("k", 65), G("k", 66), G("k", 67), G("k", 68), G("k", 69), G("k", 70), G("k", 71), G("k", 72), G("k", 73), G("k", 74), G("k", 75), G("k", 76), G("k", 77), G("k", 78), G("k", 79), G("k", 80), G("k", 81), G("k", 82), G("k", 83), G("k", 84), G("k", 85), G("k", 86), G("k", 87), G("k", 88), G("k", 89), G("k", 90), G("k", 91), G("k", 92), G("k", 93), G("k", 94), G("k", 95), G("k", 96), G("k", 97), G("k", 98), G("k", 99), G("k", 100), G("k", 101), G("k", 102), G("k", 103), G("k", 104), G("k", 105), G("k", 106), G("k", 107), G("k", 108), G("k", 109), G("k", 110), G("k", 111), G("k", 112), G("k", 113), G("k", 114), G("k", 115), G("k", 116), G("k", 117), G("k", 118), G("k", 119), G("k", 120), G("k", 121), G("k", 122), G("k", 123), G("k", 124), G("k", 125), G("k", 126), G("k", 127), G("k", 128), G("k", 129), G("k", 130), G("k", 131), G("k", 132), G("k", 133), G("k", 134), G("k", 135), G("k", 136), G("k", 137), G("k", 138), G("k", 139), G("k", 140), G("k", 141), G("k", 142), G("k", 143), G("k", 144), G("k", 145), G("k", 146), G("k", 147), G("k", 148), G("k", 149), G("k", 150), G("k", 151), G("k", 152), G("k", 153), G("k", 154), G("k", 155), G("k", 156), G("k", 157), G("k", 158), G("k", 159), G("k", 160), G("k", 161), G("k", 162), G("k", 163), G("k", 164), G("k", 165), G("k", 166), G("k", 167), G("k", 168), G("k", 169), G("k", 170), G("k", 171), G("k", 172), G("k", 173), G("k", 174), G("k", 175), G("k", 176), G("k", 177), G("k", 178), G("k", 179), G("k", 180), G("k", 181), G("k", 182), G("k", 183), G("k", 184), G("k", 185), G("k", 186), G("k", 187), G("k", 188), G("k", 189), G("k", 190), G("k", 191), G("k", 192), G("k", 193), G("k", 194), G("k", 195), G("k", 196), G("k", 197), G("k", 198), G("k", 199), G("k", 200), G("k", 201), G("k", 202), G("k", 203), G("k", 204), G("k", 205), G("k", 206), G("k", 207), G("k", 208), G("k", 209), G("k", 210), G("k", 211), G("k", 212), G("k", 213), G("k", 214), G("k", 215), G("k", 216), G("k", 217), G("k", 218), G("k", 219), G("k", 220), G("k", 221), G("k", 222), G("k", 223), G("k", 224), G("k", 225), G("k", 226), G("k", 227), G("k", 228), G("k", 229), G("k", 230), G("k", 231), G("k", 232), G("k", 233), G("k", 234), G("k", 235), G("k", 236), G("k", 237), G("k", 238), G("k", 239), G("k", 240), G("k", 241), G("k", 242), G("k", 243), G("k", 244), G("k", 245), G("k", 246), G("k", 247), G("k", 248), G("k", 249), G("k", 250), G("k", 251), G("k", 252), G("k", 253), G("k", 254), G("k", 255), G("k", 256), G("k", 257), G("k", 258), G("k", 259), G("k", 260), G("k", 261), G("k", 262), G("k", 263), G("k", 264), G("k", 265), G("k", 266), G("k", 267), G("k", 268), G("k", 269), G("k", 270), G("k", 271), G("k", 272), G("k", 273), G("k", 274), G("k", 275), G("k", 276), G("k", 277), G("k", 278), G("k", 279), G("k", 280), G("k", 281), G("k", 282), G("k", 283), G("k", 284), G("k", 285), G("k", 286), G("k", 287), G("k", 288), G("k", 289), G("k", 290), G("k", 291), G("k", 292), G("k", 293), G("k", 294), G("k", 295), G("k", 296), G("k", 297), G("k", 298), G("k", 299), G("k", 300), G("k", 301), G("k", 302), G("k", 303), G("k", 304), G("k", 305), G("k", 306), G("k", 307), G("k", 308), G("k", 309), G("k", 310), G("k", 311), G("k", 312), G("k", 313), G("k", 314), G("k", 315), G("k", 316), G("k", 317), G("k", 318), G("k", 319)});
+	test_script("long values",
+		{S("k", "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", 1), S("k", "yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy", 2), G("k", 1), G("k", 2)});
+	test_script("keys that share a prefix",
+		{S("ab", "1", 1), S("abc", "2", 2), S("a", "3", 3), G("ab", 3), G("abc", 3), G("a", 3), G("abcd", 3)});
+	test_script("random 1, 30 operations over 2 keys",
+		{S("k0", "v729", 5), S("k1", "v474", 6), S("k1", "v54", 9), S("k1", "v297", 12), S("k1", "v867", 13), G("k0", 16), S("k1", "v234", 15), G("k0", 4), S("k0", "v103", 8), G("k0", 17), S("k0", "v600", 12), S("k1", "v450", 18), G("k0", 5), S("k0", "v776", 14), S("k0", "v703", 17), S("k0", "v469", 20), S("k0", "v323", 22), S("k0", "v193", 25), S("k0", "v657", 27), G("k0", 24), G("k1", 14), S("k0", "v774", 31), S("k1", "v606", 22), G("k1", 16), S("k1", "v738", 26), G("k1", 21), S("k0", "v430", 34), S("k0", "v27", 38), G("k1", 21), G("k0", 12)});
+	test_script("random 2, 60 operations over 3 keys",
+		{S("k1", "v423", 6), S("k2", "v417", 6), G("k2", 5), S("k2", "v328", 8), G("k1", 4), G("k1", 1), G("k1", 6), G("k2", 10), S("k2", "v114", 11), G("k0", 0), S("k1", "v128", 7), G("k0", 4), G("k1", 5), G("k2", 7), G("k0", 12), S("k2", "v887", 13), G("k2", 10), S("k1", "v895", 10), G("k2", 16), S("k2", "v471", 14), G("k1", 17), S("k2", "v146", 15), G("k1", 11), S("k0", "v160", 7), G("k0", 4), S("k0", "v214", 9), S("k1", "v926", 11), G("k2", 17), S("k2", "v642", 16), G("k0", 4), G("k2", 2), G("k2", 6), S("k2", "v951", 20), S("k0", "v933", 10), S("k1", "v51", 12), S("k1", "v298", 13), S("k1", "v533", 14), G("k2", 13), S("k1", "v909", 17), S("k2", "v434", 24), S("k0", "v773", 13), S("k0", "v68", 17), S("k0", "v32", 20), S("k1", "v465", 19), S("k1", "v965", 20), S("k0", "v853", 22), S("k1", "v555", 24), S("k2", "v221", 25), S("k2", "v274", 28), S("k1", "v931", 27), G("k0", 26), S("k0", "v300", 24), G("k1", 17), G("k0", 12), G("k1", 16), S("k0", "v759", 26), G("k0", 20), S("k2", "v177", 30), G("k1", 1), S("k0", "v667", 29)});
+	test_script("random 3, 100 operations over 5 keys",
+		{S("k4", "v74", 4), G("k3", 9), G("k0", 7), S("k0", "v370", 4), S("k2", "v344", 7), G("k0", -1), G("k0", -1), G("k0", 8), G("k4", 12), S("k4", "v997", 6), S("k3", "v103", 4), S("k2", "v176", 10), G("k3", 11), S("k4", "v867", 10), G("k4", 8), G("k2", 4), G("k3", 15), S("k1", "v624", 4), G("k1", 2), S("k1", "v560", 7), G("k3", 14), G("k3", 14), G("k1", 5), S("k0", "v560", 8), G("k4", 12), S("k3", "v229", 8), S("k2", "v110", 11), G("k3", 0), G("k3", 11), S("k2", "v171", 14), G("k2", 18), G("k0", 8), G("k0", 0), G("k2", 8), G("k3", 8), G("k4", -1), S("k4", "v930", 13), S("k0", "v841", 10), S("k3", "v846", 9), S("k0", "v113", 12), S("k4", "v23", 14), S("k3", "v427", 13), G("k1", 8), G("k4", -1), S("k4", "v639", 18), G("k2", 1), G("k0", 22), S("k0", "v890", 15), G("k1", -2), S("k2", "v917", 16), S("k4", "v511", 19), G("k2", 14), S("k3", "v756", 14), S("k3", "v600", 18), S("k4", "v542", 23), S("k0", "v743", 17), G("k1", 4), G("k3", 7), S("k2", "v540", 20), G("k3", 1), G("k0", -1), G("k3", 22), G("k1", 25), S("k2", "v415", 21), G("k2", 28), S("k3", "v70", 19), G("k0", 4), G("k1", 15), G("k1", 24), S("k0", "v982", 19), G("k4", 18), G("k1", 15), S("k3", "v238", 20), G("k2", 16), G("k3", 2), G("k1", 28), G("k2", 12), G("k1", 8), G("k4", 6), G("k1", 28), S("k0", "v283", 20), S("k2", "v368", 22), G("k4", 11), G("k0", 23), G("k0", 24), G("k4", -2), G("k4", 19), G("k0", 18), G("k3", 27), G("k3", 14), G("k4", 14), G("k1", 28), S("k4", "v552", 27), G("k3", 4), S("k2", "v76", 23), S("k2", "v182", 27), G("k4", 2), S("k3", "v17", 24), G("k2", 24), G("k2", 22)});
+	test_script("random 4, 200 operations over 8 keys",
+		{S("k1", "v229", 4), G("k1", 4), S("k6", "v679", 5), S("k3", "v428", 3), G("k5", 8), G("k1", 5), G("k5", -2), S("k3", "v594", 4), G("k7", 3), G("k0", 5), S("k6", "v8", 8), G("k3", 7), G("k4", 2), G("k7", 0), G("k0", 0), S("k5", "v371", 2), G("k4", 13), G("k4", 0), S("k1", "v931", 6), G("k6", 7), G("k7", 11), S("k1", "v456", 7), S("k0", "v186", 5), S("k4", "v851", 7), S("k2", "v671", 5), G("k2", 3), G("k2", 2), S("k0", "v368", 6), G("k4", 2), S("k3", "v961", 7), S("k2", "v443", 8), S("k4", "v463", 11), G("k1", 9), S("k0", "v115", 9), S("k3", "v831", 8), G("k3", 5), S("k7", "v68", 6), G("k7", 2), S("k4", "v17", 14), S("k0", "v695", 11), G("k4", -2), G("k5", 5), G("k2", 11), G("k7", 7), G("k2", 7), S("k1", "v555", 10), S("k0", "v511", 14), S("k3", "v620", 9), G("k1", 1), S("k1", "v217", 14), G("k5", 11), S("k0", "v715", 18), S("k1", "v147", 16), G("k7", 7), S("k0", "v510", 22), G("k1", 13), S("k0", "v455", 26), G("k1", 0), G("k6", 15), G("k5", 12), S("k4", "v35", 16), G("k7", 22), G("k4", 0), S("k0", "v686", 29), G("k4", 30), G("k5", 10), G("k4", 28), S("k5", "v544", 5), S("k5", "v736", 9), G("k4", 33), S("k5", "v613", 10), G("k2", 17), S("k0", "v780", 32), G("k7", -2), G("k1", 35), S("k7", "v242", 8), G("k5", -1), S("k6", "v508", 12), S("k4", "v150", 20), S("k4", "v684", 24), G("k0", 3), G("k7", 6), S("k1", "v110", 19), G("k4", 8), S("k3", "v658", 12), S("k4", "v236", 28), G("k1", 16), G("k3", 33), S("k1", "v731", 21), S("k5", "v962", 11), G("k7", 15), S("k4", "v191", 31), G("k6", 25), G("k4", 37), G("k5", 37), G("k3", 30), S("k4", "v866", 33), S("k2", "v151", 10), G("k6", 13), S("k4", "v458", 35), S("k2", "v926", 11), G("k1", 1), G("k2", 40), S("k1", "v770", 22), S("k1", "v868", 23), G("k3", 13), S("k2", "v244", 14), S("k0", "v676", 36), S("k5", "v153", 13), G("k4", 19), G("k4", 19), S("k7", "v965", 12), G("k0", 23), G("k5", 1), G("k1", 30), S("k7", "v723", 13), G("k6", 21), G("k2", 32), S("k7", "v925", 14), G("k4", 15), S("k0", "v902", 37), S("k6", "v387", 13), S("k0", "v397", 38), S("k1", "v103", 24), S("k0", "v543", 41), S("k2", "v674", 15), S("k5", "v759", 14), G("k6", 32), G("k4", 5), S("k5", "v871", 17), S("k3", "v19", 13), S("k1", "v310", 25), S("k0", "v664", 43), G("k2", 20), S("k6", "v374", 16), S("k3", "v976", 17), G("k7", -2), G("k7", 48), G("k1", 15), G("k1", 23), S("k5", "v408", 21), G("k2", 37), S("k4", "v61", 36), S("k5", "v887", 23), G("k2", 14), G("k2", 3), S("k2", "v736", 17), G("k7", 6), G("k5", 10), G("k3", -2), G("k2", 11), G("k3", 29), S("k6", "v945", 19), S("k6", "v504", 22), G("k0", 42), G("k4", 28), S("k0", "v34", 47), G("k0", 31), S("k6", "v334", 25), S("k5", "v801", 24), G("k5", 25), S("k1", "v335", 27), G("k5", 10), G("k1", 9), G("k1", 7), S("k4", "v481", 37), S("k4", "v511", 40), G("k7", 39), G("k0", 1), G("k6", 42), S("k0", "v106", 48), S("k4", "v825", 44), S("k3", "v339", 20), S("k1", "v843", 28), G("k3", 11), G("k4", 34), G("k6", 26), G("k0", 7), S("k6", "v197", 26), S("k7", "v130", 18), G("k1", 27), S("k2", "v455", 21), G("k2", 30), G("k3", 39), S("k2", "v867", 24), G("k3", 14), G("k6", 46), G("k2", 8), G("k0", 7), G("k1", 37), G("k4", 50), S("k0", "v879", 50), S("k4", "v413", 46), S("k6", "v269", 28), G("k1", 51), G("k4", 49), S("k2", "v288", 25), G("k7", 32), G("k4", 12), S("k3", "v541", 21)});
+
+	// ---- big tests ----
+	{
+		const int n = 100000;
+		std::mt19937 gen(1);
+		std::vector<Op> ops;
+		for (int i = 1; i <= n; ++i) ops.push_back(S("key", "v" + std::to_string(i), i * 3));
+		for (int i = 0; i < n; ++i) ops.push_back(G("key", static_cast<int>(gen() % (3u * n + 10u))));
+		test_big("big: one key, 100000 sets then 100000 random gets", ops);
+	}
+	{
+		const int n = 100000;
+		std::mt19937 gen(2);
+		std::vector<Op> ops;
+		for (int i = 1; i <= n; ++i) {
+			ops.push_back(S("key", "v" + std::to_string(i), i));
+			ops.push_back(G("key", static_cast<int>(gen() % static_cast<unsigned>(i)) + 1));
+		}
+		test_big("big: one key, sets and gets alternate", ops);
+	}
+	{
+		const int n = 200000;
+		std::mt19937 gen(3);
+		std::vector<Op> ops;
+		std::vector<int> last(1000, 0);
+		for (int i = 0; i < n; ++i) {
+			const std::size_t k = gen() % 1000;
+			last[k] += 1 + static_cast<int>(gen() % 5);
+			ops.push_back(S("user_" + std::to_string(k), "value_" + std::to_string(i), last[k]));
+		}
+		for (int i = 0; i < n; ++i) {
+			const std::size_t k = gen() % 1100;  // some keys do not exist
+			ops.push_back(G("user_" + std::to_string(k), static_cast<int>(gen() % 1200)));
+		}
+		test_big("big: 1000 keys, 200000 sets and 200000 gets", ops);
+	}
+	{
+		const int n = 100000;
+		std::vector<Op> ops;
+		for (int i = 1; i <= n; ++i) ops.push_back(S("long", std::string(200, static_cast<char>('a' + i % 26)), i));
+		for (int i = 0; i < n; ++i) ops.push_back(G("long", i + 1));
+		test_big("big: 100000 values of length 200 (values must not be copied on every get search)", ops);
+	}
+}
+
+}  // namespace
+
+int main() {
+	test_all();
+	return 0;
+}
+```

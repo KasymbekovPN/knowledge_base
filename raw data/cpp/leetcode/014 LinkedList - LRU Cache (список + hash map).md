@@ -60,7 +60,8 @@ int LRUCache::get(int key) {
     auto it{index_.find(key)};  
     if (it == index_.end()) {  
         return -1;  
-    }    touch(it->second);  
+    }    
+    touch(it->second);  
   
     return it->second->second;  
 }  

@@ -1,0 +1,10 @@
+# Положи в корень C++-проекта под именем .clangd
+CompileFlags:
+  CompilationDatabase: build      # где лежит compile_commands.json
+Index:
+  Background: Build
+Diagnostics:
+  UnusedIncludes: Strict
+  ClangTidy:
+    Add: [modernize-*, bugprone-*, performance-*]
+    Remove: [modernize-use-trailing-return-type]

@@ -1,0 +1,68 @@
+;;; init.el -*- lexical-binding: t; -*-
+;;
+;; Модули Doom. После любого изменения этого файла:  doom sync
+
+(doom! :input
+
+       :completion
+       (corfu +orderless +icons)   ; автодополнение в буфере
+       (vertico +icons)            ; минибуфер: поиск файлов, команд, ripgrep
+
+       :ui
+       doom
+       dashboard
+       hl-todo                     ; подсветка TODO/FIXME/NOTE
+       indent-guides
+       modeline
+       ophints
+       (popup +defaults)
+       (vc-gutter +pretty)         ; git-изменения на полях
+       vi-tilde-fringe
+       workspaces                  ; SPC TAB — рабочие пространства по проектам
+       treemacs                    ; дерево файлов: SPC o p
+
+       :editor
+       (evil +everywhere)          ; vim-раскладка; убери строку, если не нужна
+       file-templates
+       fold
+       format                      ; SPC c f; без +onsave, чтобы не переформатировать чужой код в монолите
+       multiple-cursors
+       snippets
+
+       :emacs
+       (dired +icons)
+       electric
+       (ibuffer +icons)
+       undo
+       vc
+
+       :term
+       vterm                       ; полноценный терминал: SPC o t
+
+       :checkers
+       syntax                      ; диагностика clangd / clippy на лету
+
+       :tools
+       docker                      ; Dockerfile + управление контейнерами
+       (eval +overlay)
+       lookup                      ; gd / gD — определение / ссылки
+       (lsp +eglot)                ; eglot вместо lsp-mode: легче на больших проектах
+       magit
+       make
+       tree-sitter
+
+       :os
+       tty
+
+       :lang
+       (cc +lsp +tree-sitter)      ; C/C++ + CMake (cmake-mode входит в модуль)
+       (rust +lsp +tree-sitter)
+       emacs-lisp
+       json
+       yaml
+       (markdown +grip)
+       sh
+       org
+
+       :config
+       (default +bindings +smartparens))
