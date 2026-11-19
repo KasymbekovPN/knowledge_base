@@ -1,0 +1,127 @@
+#include <iostream>
+#include <cstddef>
+#include <string>
+#include <vector>
+#include <queue>
+#include <chrono>
+#include <algorithm>
+
+namespace {
+
+constexpr int NOT_FOUND{-1};
+
+// Return the k-th largest element of nums (1-based: k == 1 is the maximum).
+// Duplicates count separately: in {3, 3, 2} the 2nd largest is 3 and the 3rd largest is 2.
+// 1 <= k <= nums.size(). The vector is passed by value: you may reorder it.
+int find_kth_largest(std::vector<int> nums, int k) {
+	const std::size_t k_size{static_cast<std::size_t>(k)};
+	std::priority_queue<int, std::vector<int>, std::greater<>> min_heap{};
+	for (const auto num: nums) {
+		min_heap.push(num);
+		if (min_heap.size() > k_size) {
+			min_heap.pop();
+		}
+	}
+
+    return !min_heap.empty() ? min_heap.top() : NOT_FOUND;
+}
+
+// Reference: full sort.
+int by_sorting(std::vector<int> nums, int k) {
+    std::sort(nums.begin(), nums.end(), std::greater<>());
+    return nums[static_cast<std::size_t>(k) - 1];
+}
+
+void report(const std::string& label, bool ok) {
+    std::cout << label << ": " << (ok ? "OK" : "FAIL") << '\n';
+}
+
+void test_kth(const std::string& label, const std::vector<int>& nums, int k) {
+    report(label, find_kth_largest(nums, k) == by_sorting(nums, k));
+}
+
+void test_big(const std::string& label, const std::vector<int>& nums, int k) {
+    const int expected = by_sorting(nums, k);
+    const auto start = std::chrono::steady_clock::now();
+    const int got = find_kth_largest(nums, k);
+    const auto elapsed = std::chrono::steady_clock::now() - start;
+    const bool fast = elapsed < std::chrono::seconds(1);
+    report(label + (fast ? "" : " (too slow)"), got == expected && fast);
+}
+
+void test_all() {
+    test_kth("description example 1",
+        {3, 2, 1, 5, 6, 4}, 2);
+    test_kth("description example 2",
+        {3, 2, 3, 1, 2, 4, 5, 5, 6}, 4);
+    test_kth("one element",
+        {7}, 1);
+    test_kth("two elements, k == 1",
+        {2, 9}, 1);
+    test_kth("two elements, k == 2",
+        {2, 9}, 2);
+    test_kth("k == n: the minimum",
+        {5, 3, 8, 1, 9}, 5);
+    test_kth("k == 1: the maximum",
+        {5, 3, 8, 1, 9}, 1);
+    test_kth("duplicates count separately",
+        {3, 3, 2}, 2);
+    test_kth("duplicates, k points past them",
+        {3, 3, 2}, 3);
+    test_kth("all equal",
+        {4, 4, 4, 4, 4}, 3);
+    test_kth("all negative",
+        {-5, -1, -9, -3}, 2);
+    test_kth("mixed signs",
+        {-2, 7, 0, -9, 4, 4}, 3);
+    test_kth("ascending",
+        {1, 2, 3, 4, 5, 6, 7, 8}, 3);
+    test_kth("descending",
+        {8, 7, 6, 5, 4, 3, 2, 1}, 6);
+    test_kth("extreme values",
+        {-2147483647 - 1, 2147483647, 0, 2147483647, -2147483647 - 1}, 3);
+    test_kth("only two distinct values",
+        {1, 2, 1, 2, 1, 2, 1}, 4);
+    test_kth("random 1: 10 elements from -5 to 5, k == 4",
+        {3, -5, 0, 2, 5, -1, -3, 4, 1, -2}, 4);
+    test_kth("random 2: 15 elements from -9 to 9, k == 8",
+        {-9, 4, 7, -2, 0, 9, 3, -6, 1, 8, -4, 5, -7, 2, 6}, 8);
+    test_kth("random 3: 25 elements from 0 to 5, k == 10",
+        {1, 5, 0, 2, 2, 4, 3, 5, 0, 1, 3, 4, 2, 0, 5, 3, 1, 4, 0, 2, 5, 1, 3, 4, 2}, 10);
+
+    // ---- big tests ----
+    {
+        std::vector<int> nums(1000000);
+        unsigned x = 2025u;
+        for (auto& v : nums) { x = x * 1103515245u + 12345u; v = static_cast<int>(x >> 4) - (1 << 26); }
+        test_big("big: 1000000 pseudo-random, k = 1", nums, 1);
+        test_big("big: 1000000 pseudo-random, k = 500000", nums, 500000);
+        test_big("big: 1000000 pseudo-random, k = 1000000", nums, 1000000);
+    }
+    {
+        std::vector<int> nums(1000000);
+        for (std::size_t i = 0; i < nums.size(); ++i) nums[i] = static_cast<int>(i);
+        test_big("big: 1000000 ascending, k = 250000", nums, 250000);
+    }
+    {
+        std::vector<int> nums(1000000);
+        for (std::size_t i = 0; i < nums.size(); ++i) nums[i] = static_cast<int>(nums.size() - i);
+        test_big("big: 1000000 descending, k = 750000", nums, 750000);
+    }
+    {
+        std::vector<int> nums(1000000, 42);
+        test_big("big: 1000000 equal values, k = 500000", nums, 500000);
+    }
+    {
+        std::vector<int> nums(1000000);
+        for (std::size_t i = 0; i < nums.size(); ++i) nums[i] = static_cast<int>(i % 3);
+        test_big("big: 1000000 values 0, 1, 2 in a cycle, k = 400000", nums, 400000);
+    }
+}
+
+}  // namespace
+
+int main() {
+    test_all();
+    return 0;
+}
